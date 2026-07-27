@@ -3,10 +3,13 @@ from decimal import Decimal
 from uuid import uuid4
 from fastapi import Depends, FastAPI, HTTPException, Query
 from .db import connection
-from .models import AvailabilityRequest, TransactionRequest, ReservationRequest, ReleaseRequest
+from .models import (
+    AvailabilityRequest, TransactionRequest, ReservationRequest, ReleaseRequest,
+    BulkOpeningBalanceRequest
+)
 from .security import require_api_key
 
-app = FastAPI(title="FarmAI Stock Manager API", version="7.2.0")
+app = FastAPI(title="FarmAI Stock Manager API", version="7.2.1")
 
 def d(value):
     return Decimal(str(value or 0))
@@ -49,13 +52,13 @@ def available(conn, product_id, location_id):
 
 @app.get("/", include_in_schema=False)
 def root():
-    return {"ok": True, "service": "FarmAI Stock Manager", "version": "7.2.0"}
+    return {"ok": True, "service": "FarmAI Stock Manager", "version": "7.2.1"}
 
 @app.get("/health", dependencies=[Depends(require_api_key)])
 def health():
     with connection() as conn:
         conn.execute("select 1")
-    return {"ok": True, "data": {"version": "7.2.0", "status": "ok"}}
+    return {"ok": True, "data": {"version": "7.2.1", "status": "ok"}}
 
 @app.get("/products/search", dependencies=[Depends(require_api_key)])
 def search_products(q: str = Query(min_length=1)):
@@ -198,6 +201,140 @@ def transact(req: TransactionRequest):
         except Exception:
             conn.rollback()
             raise
+
+@app.post("/inventory/import-opening-balances", dependencies=[Depends(require_api_key)])
+def import_opening_balances(req: BulkOpeningBalanceRequest):
+    """Import a complete opening-stock snapshot safely and idempotently.
+
+    The default behavior is atomic: every non-duplicate row is validated before
+    anything is inserted. Existing non-zero stock is rejected by default so a
+    migration cannot accidentally add a second opening balance.
+    """
+    with connection() as conn:
+        try:
+            prepared = []
+            duplicates = []
+            errors = []
+
+            for index, item in enumerate(req.opening_balances):
+                existing_tx = conn.execute(
+                    "select * from stock_transactions where idempotency_key=%s",
+                    (item.idempotency_key,)
+                ).fetchone()
+                if existing_tx:
+                    duplicates.append({
+                        "index": index,
+                        "product_code": item.product_code,
+                        "idempotency_key": item.idempotency_key,
+                        "transaction_id": existing_tx["id"],
+                    })
+                    continue
+
+                p = conn.execute(
+                    "select * from products where lower(product_code)=lower(%s) and active=true",
+                    (item.product_code,)
+                ).fetchone()
+                if not p:
+                    errors.append({
+                        "index": index, "product_code": item.product_code,
+                        "code": "PRODUCT_NOT_FOUND", "message": "Product not found."
+                    })
+                    continue
+
+                loc = conn.execute(
+                    "select * from stock_locations where lower(location_code)=lower(%s) and active=true",
+                    (item.location_code,)
+                ).fetchone()
+                if not loc:
+                    errors.append({
+                        "index": index, "product_code": item.product_code,
+                        "code": "LOCATION_NOT_FOUND", "message": "Location not found."
+                    })
+                    continue
+
+                if item.unit.lower() != p["base_unit"].lower():
+                    errors.append({
+                        "index": index, "product_code": item.product_code,
+                        "code": "UNIT_MISMATCH",
+                        "message": f"Expected {p['base_unit']}, received {item.unit}."
+                    })
+                    continue
+
+                physical = conn.execute(
+                    '''select coalesce(sum(quantity_in-quantity_out),0) qty
+                       from stock_transactions
+                       where product_id=%s and location_id=%s and status='CONFIRMED' ''',
+                    (p["id"], loc["id"])
+                ).fetchone()["qty"]
+                if req.reject_nonzero_existing and d(physical) != 0:
+                    errors.append({
+                        "index": index, "product_code": item.product_code,
+                        "code": "NONZERO_EXISTING_STOCK",
+                        "message": f"Existing physical stock is {physical} {p['base_unit']}. Clear/reverse test data or use a verification workflow before importing."
+                    })
+                    continue
+
+                prepared.append((index, item, p, loc))
+
+            if errors and req.atomic:
+                raise HTTPException(422, detail={
+                    "code": "IMPORT_VALIDATION_FAILED",
+                    "message": "No rows were imported because atomic validation failed.",
+                    "errors": errors,
+                    "duplicate_count": len(duplicates),
+                })
+
+            imported = []
+            for index, item, p, loc in prepared:
+                conn.execute("select id from products where id=%s for update", (p["id"],))
+
+                batch_id = None
+                if item.batch_number:
+                    batch_id = conn.execute(
+                        '''insert into stock_batches(product_id,location_id,batch_number,expiry_date)
+                           values(%s,%s,%s,%s)
+                           on conflict(product_id,location_id,batch_number)
+                           do update set expiry_date=coalesce(excluded.expiry_date,stock_batches.expiry_date)
+                           returning id''',
+                        (p["id"], loc["id"], item.batch_number, item.expiry_date)
+                    ).fetchone()["id"]
+
+                tx = conn.execute(
+                    '''insert into stock_transactions(
+                       transaction_no,transaction_type,product_id,location_id,batch_id,
+                       quantity_in,quantity_out,unit,effective_at,notes,idempotency_key)
+                       values(%s,'OPENING_BALANCE',%s,%s,%s,%s,0,%s,coalesce(%s,now()),%s,%s)
+                       returning *''',
+                    (txn_no(), p["id"], loc["id"], batch_id, item.quantity,
+                     p["base_unit"], item.effective_at, item.notes, item.idempotency_key)
+                ).fetchone()
+                imported.append({
+                    "index": index,
+                    "product_code": p["product_code"],
+                    "quantity": item.quantity,
+                    "unit": p["base_unit"],
+                    "transaction_id": tx["id"],
+                    "transaction_no": tx["transaction_no"],
+                })
+
+            conn.commit()
+            return {"ok": True, "data": {
+                "atomic": req.atomic,
+                "requested": len(req.opening_balances),
+                "imported_count": len(imported),
+                "duplicate_count": len(duplicates),
+                "failed_count": len(errors),
+                "imported": imported,
+                "duplicates": duplicates,
+                "errors": errors,
+            }}
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
+
 
 @app.post("/inventory/reservations", dependencies=[Depends(require_api_key)])
 def reserve(req: ReservationRequest):

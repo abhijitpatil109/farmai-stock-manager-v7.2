@@ -53,3 +53,36 @@ class ReservationRequest(BaseModel):
 class ReleaseRequest(BaseModel):
     reservation_id: UUID
     idempotency_key: str = Field(min_length=8)
+
+
+class OpeningBalanceImportItem(BaseModel):
+    action: Literal["recordOpeningBalance"] = "recordOpeningBalance"
+    idempotency_key: str = Field(min_length=8, max_length=200)
+    product_code: str = Field(min_length=1, max_length=100)
+    quantity: Decimal = Field(gt=0)
+    unit: str = Field(min_length=1, max_length=20)
+    location_code: str = Field(default="MAIN", min_length=1, max_length=50)
+    batch_number: str | None = Field(default=None, max_length=100)
+    expiry_date: date | None = None
+    effective_at: datetime | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class BulkOpeningBalanceRequest(BaseModel):
+    opening_balances: list[OpeningBalanceImportItem] = Field(min_length=1, max_length=500)
+    atomic: bool = True
+    reject_nonzero_existing: bool = True
+
+    @model_validator(mode="after")
+    def validate_unique_items(self):
+        keys = [item.idempotency_key for item in self.opening_balances]
+        if len(keys) != len(set(keys)):
+            raise ValueError("Duplicate idempotency_key values exist inside the import payload")
+
+        product_locations = [
+            (item.product_code.lower(), item.location_code.lower())
+            for item in self.opening_balances
+        ]
+        if len(product_locations) != len(set(product_locations)):
+            raise ValueError("A product/location pair appears more than once in the import payload")
+        return self
