@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: FarmAI Stock Manager API
-  version: 7.2.0
+  version: 7.2.1
 servers:
   - url: https://REPLACE_WITH_VERCEL_DOMAIN
 security:
@@ -70,6 +70,41 @@ paths:
                 idempotency_key: {type: string, minLength: 8}
       responses:
         '200': {description: Transaction}
+  /inventory/import-opening-balances:
+    post:
+      operationId: importOpeningBalances
+      summary: Import opening balances atomically
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [opening_balances]
+              properties:
+                atomic: {type: boolean, default: true}
+                reject_nonzero_existing: {type: boolean, default: true}
+                opening_balances:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items:
+                    type: object
+                    required: [idempotency_key, product_code, quantity, unit]
+                    properties:
+                      action: {type: string, enum: [recordOpeningBalance], default: recordOpeningBalance}
+                      idempotency_key: {type: string, minLength: 8}
+                      product_code: {type: string}
+                      quantity: {type: number, exclusiveMinimum: 0}
+                      unit: {type: string}
+                      location_code: {type: string, default: MAIN}
+                      batch_number: {type: string}
+                      expiry_date: {type: string, format: date}
+                      effective_at: {type: string, format: date-time}
+                      notes: {type: string}
+      responses:
+        '200': {description: Import completed}
+        '422': {description: Atomic validation failed}
   /inventory/reservations:
     post:
       operationId: reserveStock
