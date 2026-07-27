@@ -59,7 +59,7 @@ class OpeningBalanceImportItem(BaseModel):
     action: Literal["recordOpeningBalance"] = "recordOpeningBalance"
     idempotency_key: str = Field(min_length=8, max_length=200)
     product_code: str = Field(min_length=1, max_length=100)
-    quantity: Decimal = Field(gt=0)
+    quantity: Decimal = Field(ge=0)
     unit: str = Field(min_length=1, max_length=20)
     location_code: str = Field(default="MAIN", min_length=1, max_length=50)
     batch_number: str | None = Field(default=None, max_length=100)
