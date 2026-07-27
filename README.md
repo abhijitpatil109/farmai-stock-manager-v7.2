@@ -1,21 +1,23 @@
-# FarmAI Stock Manager V7.2
+# FarmAI Stock Manager V7.2.2
 
-Authoritative FarmAI stock capability.
+Production-ready FastAPI + PostgreSQL stock service with:
 
-Owns:
-- products and active ingredients
-- stock locations
-- batches and expiry
-- stock ledger and balances
-- availability checks
-- reservations
-- actual consumption
-- verification, reversal and audit
+- immutable product base units;
+- centralized quantity normalization;
+- `kg ↔ g ↔ mg` and `l ↔ ml` conversions;
+- atomic bulk opening-balance import;
+- zero-stock rows reported as `SKIPPED_ZERO` without ledger entries;
+- idempotent stock transactions and reservations;
+- negative-stock prevention;
+- Vercel deployment configuration.
 
-The Weekly Planner must use this capability through its API and must never
-directly modify stock tables.
+## Deploy
 
+1. Upload/replace the repository files on the `feature/bulk-import` branch.
+2. No database migration is required for V7.2.2.
+3. Allow Vercel to create a preview deployment.
+4. Verify `/health` returns version `7.2.2`.
+5. Run the normalization smoke tests in `docs/DEPLOY_V7.2.2.md`.
+6. Merge into `main` only after the preview tests pass.
 
-## Bulk opening-balance import (v7.2.1)
-
-`POST /inventory/import-opening-balances` validates and imports up to 500 opening balances in one atomic request. It rejects non-zero existing stock by default to prevent accidental double loading and treats existing idempotency keys as safe duplicates.
+See `docs/QUANTITY_NORMALIZATION_STANDARD.md` and `docs/BULK_IMPORT_GUIDE.md`.
