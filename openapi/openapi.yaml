@@ -1,0 +1,112 @@
+openapi: 3.1.0
+info:
+  title: FarmAI Stock Manager API
+  version: 7.2.0
+servers:
+  - url: https://REPLACE_WITH_VERCEL_DOMAIN
+security:
+  - ApiKeyAuth: []
+paths:
+  /health:
+    get:
+      operationId: healthCheck
+      responses:
+        '200': {description: Healthy}
+  /products/search:
+    get:
+      operationId: searchProducts
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Products}
+  /inventory:
+    get:
+      operationId: getCurrentInventory
+      responses:
+        '200': {description: Inventory}
+  /inventory/availability:
+    post:
+      operationId: checkStockAvailability
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_code, required_quantity, unit]
+              properties:
+                product_code: {type: string}
+                required_quantity: {type: number, exclusiveMinimum: 0}
+                unit: {type: string}
+                required_date: {type: string, format: date}
+      responses:
+        '200': {description: Availability}
+  /inventory/transactions:
+    post:
+      operationId: recordStockTransaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, idempotency_key]
+              properties:
+                action:
+                  type: string
+                  enum: [recordOpeningBalance,recordPurchase,recordUsage,recordDamage,recordExpiryDisposal,recordVerification,reverseTransaction]
+                product_code: {type: string}
+                quantity: {type: number}
+                verified_quantity: {type: number}
+                unit: {type: string}
+                location_code: {type: string}
+                batch_number: {type: string}
+                expiry_date: {type: string, format: date}
+                effective_at: {type: string, format: date-time}
+                notes: {type: string}
+                external_task_id: {type: string}
+                external_activity_id: {type: string}
+                transaction_id: {type: string, format: uuid}
+                idempotency_key: {type: string, minLength: 8}
+      responses:
+        '200': {description: Transaction}
+  /inventory/reservations:
+    post:
+      operationId: reserveStock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task_id,product_code,quantity,unit,idempotency_key]
+              properties:
+                task_id: {type: string}
+                product_code: {type: string}
+                quantity: {type: number, exclusiveMinimum: 0}
+                unit: {type: string}
+                required_date: {type: string, format: date}
+                idempotency_key: {type: string, minLength: 8}
+      responses:
+        '200': {description: Reservation}
+  /inventory/reservations/release:
+    post:
+      operationId: releaseStockReservation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reservation_id,idempotency_key]
+              properties:
+                reservation_id: {type: string, format: uuid}
+                idempotency_key: {type: string, minLength: 8}
+      responses:
+        '200': {description: Released}
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
