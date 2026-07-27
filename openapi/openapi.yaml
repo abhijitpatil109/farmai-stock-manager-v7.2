@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: FarmAI Stock Manager API
-  version: 7.2.1
+  version: 7.2.2
 servers:
   - url: https://REPLACE_WITH_VERCEL_DOMAIN
 security:
