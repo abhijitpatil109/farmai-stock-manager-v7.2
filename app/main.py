@@ -1,8 +1,9 @@
+from .api.v1.health import router as health_router
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 
 from .db import connection
 from .models import (
@@ -17,7 +18,7 @@ from .security import require_api_key
 
 VERSION = "7.2.2"
 app = FastAPI(title="FarmAI Stock Manager API", version=VERSION)
-
+app.include_router(health_router)
 
 def d(value):
     return Decimal(str(value or 0))
