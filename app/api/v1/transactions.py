@@ -500,7 +500,7 @@ def record_stock_adjustment(req: StockAdjustmentRequest):
             raise
 
 @router.get(
-    "/inventory/transactions",
+    "/transactions",
     operation_id="getStockTransactions",
     summary="Get stock transaction history",
 )
