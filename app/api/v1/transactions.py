@@ -7,6 +7,16 @@ POST /api/v1/inventory/purchases
 POST /api/v1/inventory/issues
 POST /api/v1/inventory/adjustments
 GET  /api/v1/inventory/transactions
+
+Enterprise guarantees
+---------------------
+• PostgreSQL remains the source of truth.
+• All writes are idempotent through idempotency_key.
+• Quantities are normalized to products.base_unit.
+• Negative / insufficient available stock is blocked.
+• Physical verification records only the variance.
+• Error payloads are JSON-safe through jsonable_encoder.
+• All responses use the FarmAI v1 response envelope.
 """
 
 from __future__ import annotations
@@ -17,17 +27,14 @@ from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from ...core.responses import error_response, success_response
 from ...core.security import require_api_key
 from ...db import connection
-from ...quantity import (
-    QuantityNormalizationError,
-    canonical_unit,
-    normalize_quantity,
-)
+from ...quantity import QuantityNormalizationError, canonical_unit, normalize_quantity
 
 router = APIRouter(
     prefix="/api/v1",
@@ -68,13 +75,20 @@ class StockAdjustmentRequest(BaseModel):
 def _transaction_no() -> str:
     return f"TXN-{datetime.now(timezone.utc):%Y%m%d%H%M%S}-{uuid4().hex[:8].upper()}"
 
+def _error_json(*, status_code: int, code: str, message: str, details=None) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content=jsonable_encoder(
+            error_response(code=code, message=message, details=details)
+        ),
+    )
+
 def _get_product(conn, product_code: str):
     return conn.execute(
         """
         SELECT id, product_code, product_name, base_unit, active
         FROM products
-        WHERE LOWER(product_code) = LOWER(%s)
-          AND active = TRUE
+        WHERE LOWER(product_code)=LOWER(%s) AND active=TRUE
         """,
         (product_code.strip(),),
     ).fetchone()
@@ -84,8 +98,7 @@ def _get_location(conn, location_code: str):
         """
         SELECT id, location_code, active
         FROM stock_locations
-        WHERE LOWER(location_code) = LOWER(%s)
-          AND active = TRUE
+        WHERE LOWER(location_code)=LOWER(%s) AND active=TRUE
         """,
         (location_code.strip(),),
     ).fetchone()
@@ -95,8 +108,8 @@ def _get_inventory(conn, product_code: str, location_code: str):
         """
         SELECT physical_stock, reserved_stock, available_stock, unit
         FROM current_inventory
-        WHERE LOWER(product_code) = LOWER(%s)
-          AND LOWER(location_code) = LOWER(%s)
+        WHERE LOWER(product_code)=LOWER(%s)
+          AND LOWER(location_code)=LOWER(%s)
         """,
         (product_code.strip(), location_code.strip()),
     ).fetchone()
@@ -105,41 +118,36 @@ def _get_duplicate(conn, idempotency_key: str):
     return conn.execute(
         """
         SELECT
-            st.id,
-            st.transaction_no,
-            st.transaction_type,
-            st.quantity_in,
-            st.quantity_out,
-            st.unit,
-            st.effective_at,
-            st.status,
-            p.product_code,
-            p.product_name,
-            sl.location_code
+            st.id, st.transaction_no, st.transaction_type,
+            st.quantity_in, st.quantity_out, st.unit,
+            st.effective_at, st.status,
+            p.product_code, p.product_name, sl.location_code
         FROM stock_transactions st
-        JOIN products p ON p.id = st.product_id
-        JOIN stock_locations sl ON sl.id = st.location_id
-        WHERE st.idempotency_key = %s
+        JOIN products p ON p.id=st.product_id
+        JOIN stock_locations sl ON sl.id=st.location_id
+        WHERE st.idempotency_key=%s
         LIMIT 1
         """,
         (idempotency_key,),
     ).fetchone()
 
-def _normalize_quantity_or_response(quantity: Decimal, submitted_unit: str, base_unit: str):
+def _normalize_or_error(quantity: Decimal, submitted_unit: str, base_unit: str):
     try:
         return normalize_quantity(quantity, submitted_unit, base_unit)
     except QuantityNormalizationError as exc:
-        return JSONResponse(
+        return _error_json(
             status_code=422,
-            content=error_response(
-                code="INVALID_UNIT_CONVERSION",
-                message=str(exc),
-                details={"submitted_unit": submitted_unit, "base_unit": base_unit},
-            ),
+            code="INVALID_UNIT_CONVERSION",
+            message=str(exc),
+            details={"submitted_unit": submitted_unit, "base_unit": base_unit},
         )
 
 def _duplicate_response(conn, duplicate):
-    inventory = _get_inventory(conn, duplicate["product_code"], duplicate["location_code"])
+    inventory = _get_inventory(
+        conn,
+        duplicate["product_code"],
+        duplicate["location_code"],
+    )
     return success_response(
         {
             "duplicate": True,
@@ -160,8 +168,9 @@ def _duplicate_response(conn, duplicate):
         meta={"source": "postgresql.stock_transactions"},
     )
 
-def _write_result(*, transaction, product, location, submitted_quantity, submitted_unit,
-                  normalized_quantity, previous_inventory, new_inventory):
+def _write_result(*, transaction, product, location, submitted_quantity,
+                  submitted_unit, normalized_quantity, previous_inventory,
+                  new_inventory):
     return {
         "duplicate": False,
         "transaction_id": transaction["id"],
@@ -182,7 +191,11 @@ def _write_result(*, transaction, product, location, submitted_quantity, submitt
         "status": transaction["status"],
     }
 
-@router.post("/inventory/purchases", operation_id="recordStockPurchase", summary="Record stock purchase")
+@router.post(
+    "/inventory/purchases",
+    operation_id="recordStockPurchase",
+    summary="Record stock purchase",
+)
 def record_stock_purchase(req: PurchaseRequest):
     with connection() as conn:
         try:
@@ -192,45 +205,59 @@ def record_stock_purchase(req: PurchaseRequest):
 
             product = _get_product(conn, req.product_code)
             if not product:
-                return JSONResponse(status_code=404, content=error_response(
-                    "PRODUCT_NOT_FOUND", f"Product '{req.product_code}' was not found."
-                ))
+                return _error_json(
+                    status_code=404,
+                    code="PRODUCT_NOT_FOUND",
+                    message=f"Product '{req.product_code}' was not found.",
+                )
 
             location = _get_location(conn, req.location_code)
             if not location:
-                return JSONResponse(status_code=404, content=error_response(
-                    "LOCATION_NOT_FOUND", f"Location '{req.location_code}' was not found."
-                ))
+                return _error_json(
+                    status_code=404,
+                    code="LOCATION_NOT_FOUND",
+                    message=f"Location '{req.location_code}' was not found.",
+                )
 
-            normalized = _normalize_quantity_or_response(req.quantity, req.unit, product["base_unit"])
+            normalized = _normalize_or_error(req.quantity, req.unit, product["base_unit"])
             if isinstance(normalized, JSONResponse):
                 return normalized
 
-            conn.execute("SELECT id FROM products WHERE id = %s FOR UPDATE", (product["id"],))
-            previous_inventory = _get_inventory(conn, product["product_code"], location["location_code"])
+            conn.execute("SELECT id FROM products WHERE id=%s FOR UPDATE", (product["id"],))
+            previous_inventory = _get_inventory(
+                conn, product["product_code"], location["location_code"]
+            )
 
             transaction = conn.execute(
                 """
-                INSERT INTO stock_transactions (
+                INSERT INTO stock_transactions(
                     transaction_no, transaction_type, product_id, location_id,
                     quantity_in, quantity_out, unit, effective_at, notes,
                     idempotency_key, status
                 )
-                VALUES (%s, 'PURCHASE', %s, %s, %s, 0, %s, COALESCE(%s, NOW()), %s, %s, 'CONFIRMED')
+                VALUES(%s,'PURCHASE',%s,%s,%s,0,%s,COALESCE(%s,NOW()),%s,%s,'CONFIRMED')
                 RETURNING *
                 """,
-                (_transaction_no(), product["id"], location["id"], normalized,
-                 product["base_unit"], req.effective_at, req.notes, req.idempotency_key),
+                (
+                    _transaction_no(), product["id"], location["id"], normalized,
+                    product["base_unit"], req.effective_at, req.notes, req.idempotency_key
+                ),
             ).fetchone()
 
-            new_inventory = _get_inventory(conn, product["product_code"], location["location_code"])
+            new_inventory = _get_inventory(
+                conn, product["product_code"], location["location_code"]
+            )
             conn.commit()
 
             return success_response(
                 _write_result(
-                    transaction=transaction, product=product, location=location,
-                    submitted_quantity=req.quantity, submitted_unit=req.unit,
-                    normalized_quantity=normalized, previous_inventory=previous_inventory,
+                    transaction=transaction,
+                    product=product,
+                    location=location,
+                    submitted_quantity=req.quantity,
+                    submitted_unit=req.unit,
+                    normalized_quantity=normalized,
+                    previous_inventory=previous_inventory,
                     new_inventory=new_inventory,
                 ),
                 meta={"source": "postgresql.stock_transactions"},
@@ -239,7 +266,11 @@ def record_stock_purchase(req: PurchaseRequest):
             conn.rollback()
             raise
 
-@router.post("/inventory/issues", operation_id="recordStockUsage", summary="Record stock usage")
+@router.post(
+    "/inventory/issues",
+    operation_id="recordStockUsage",
+    summary="Record stock usage",
+)
 def record_stock_usage(req: StockIssueRequest):
     with connection() as conn:
         try:
@@ -249,61 +280,85 @@ def record_stock_usage(req: StockIssueRequest):
 
             product = _get_product(conn, req.product_code)
             if not product:
-                return JSONResponse(status_code=404, content=error_response(
-                    "PRODUCT_NOT_FOUND", f"Product '{req.product_code}' was not found."
-                ))
+                return _error_json(
+                    status_code=404,
+                    code="PRODUCT_NOT_FOUND",
+                    message=f"Product '{req.product_code}' was not found.",
+                )
 
             location = _get_location(conn, req.location_code)
             if not location:
-                return JSONResponse(status_code=404, content=error_response(
-                    "LOCATION_NOT_FOUND", f"Location '{req.location_code}' was not found."
-                ))
+                return _error_json(
+                    status_code=404,
+                    code="LOCATION_NOT_FOUND",
+                    message=f"Location '{req.location_code}' was not found.",
+                )
 
-            normalized = _normalize_quantity_or_response(req.quantity, req.unit, product["base_unit"])
+            normalized = _normalize_or_error(req.quantity, req.unit, product["base_unit"])
             if isinstance(normalized, JSONResponse):
                 return normalized
 
-            conn.execute("SELECT id FROM products WHERE id = %s FOR UPDATE", (product["id"],))
-            previous_inventory = _get_inventory(conn, product["product_code"], location["location_code"])
+            conn.execute("SELECT id FROM products WHERE id=%s FOR UPDATE", (product["id"],))
+            previous_inventory = _get_inventory(
+                conn, product["product_code"], location["location_code"]
+            )
 
-            if normalized > Decimal(str(previous_inventory["available_stock"])):
-                return JSONResponse(
-                    status_code=409,
-                    content=error_response(
-                        code="INSUFFICIENT_STOCK",
-                        message="Insufficient unreserved stock.",
-                        details={
-                            "product_code": product["product_code"],
-                            "requested_quantity": normalized,
-                            "available_quantity": previous_inventory["available_stock"],
-                            "unit": product["base_unit"],
-                        },
+            if not previous_inventory:
+                return _error_json(
+                    status_code=404,
+                    code="INVENTORY_NOT_FOUND",
+                    message=(
+                        f"No inventory row exists for product '{product['product_code']}' "
+                        f"at location '{location['location_code']}'."
                     ),
+                )
+
+            available_stock = Decimal(str(previous_inventory["available_stock"]))
+
+            if normalized > available_stock:
+                return _error_json(
+                    status_code=409,
+                    code="INSUFFICIENT_STOCK",
+                    message="Insufficient unreserved stock.",
+                    details={
+                        "product_code": product["product_code"],
+                        "requested_quantity": normalized,
+                        "available_quantity": available_stock,
+                        "unit": product["base_unit"],
+                    },
                 )
 
             transaction = conn.execute(
                 """
-                INSERT INTO stock_transactions (
+                INSERT INTO stock_transactions(
                     transaction_no, transaction_type, product_id, location_id,
                     quantity_in, quantity_out, unit, effective_at, notes,
                     idempotency_key, external_task_id, external_activity_id, status
                 )
-                VALUES (%s, 'USAGE', %s, %s, 0, %s, %s, COALESCE(%s, NOW()), %s, %s, %s, %s, 'CONFIRMED')
+                VALUES(%s,'USAGE',%s,%s,0,%s,%s,COALESCE(%s,NOW()),%s,%s,%s,%s,'CONFIRMED')
                 RETURNING *
                 """,
-                (_transaction_no(), product["id"], location["id"], normalized,
-                 product["base_unit"], req.effective_at, req.notes, req.idempotency_key,
-                 req.external_task_id, req.external_activity_id),
+                (
+                    _transaction_no(), product["id"], location["id"], normalized,
+                    product["base_unit"], req.effective_at, req.notes,
+                    req.idempotency_key, req.external_task_id, req.external_activity_id
+                ),
             ).fetchone()
 
-            new_inventory = _get_inventory(conn, product["product_code"], location["location_code"])
+            new_inventory = _get_inventory(
+                conn, product["product_code"], location["location_code"]
+            )
             conn.commit()
 
             return success_response(
                 _write_result(
-                    transaction=transaction, product=product, location=location,
-                    submitted_quantity=req.quantity, submitted_unit=req.unit,
-                    normalized_quantity=normalized, previous_inventory=previous_inventory,
+                    transaction=transaction,
+                    product=product,
+                    location=location,
+                    submitted_quantity=req.quantity,
+                    submitted_unit=req.unit,
+                    normalized_quantity=normalized,
+                    previous_inventory=previous_inventory,
                     new_inventory=new_inventory,
                 ),
                 meta={"source": "postgresql.stock_transactions"},
@@ -312,7 +367,11 @@ def record_stock_usage(req: StockIssueRequest):
             conn.rollback()
             raise
 
-@router.post("/inventory/adjustments", operation_id="recordStockAdjustment", summary="Record physical stock adjustment")
+@router.post(
+    "/inventory/adjustments",
+    operation_id="recordStockAdjustment",
+    summary="Record physical stock adjustment",
+)
 def record_stock_adjustment(req: StockAdjustmentRequest):
     with connection() as conn:
         try:
@@ -322,22 +381,41 @@ def record_stock_adjustment(req: StockAdjustmentRequest):
 
             product = _get_product(conn, req.product_code)
             if not product:
-                return JSONResponse(status_code=404, content=error_response(
-                    "PRODUCT_NOT_FOUND", f"Product '{req.product_code}' was not found."
-                ))
+                return _error_json(
+                    status_code=404,
+                    code="PRODUCT_NOT_FOUND",
+                    message=f"Product '{req.product_code}' was not found.",
+                )
 
             location = _get_location(conn, req.location_code)
             if not location:
-                return JSONResponse(status_code=404, content=error_response(
-                    "LOCATION_NOT_FOUND", f"Location '{req.location_code}' was not found."
-                ))
+                return _error_json(
+                    status_code=404,
+                    code="LOCATION_NOT_FOUND",
+                    message=f"Location '{req.location_code}' was not found.",
+                )
 
-            verified = _normalize_quantity_or_response(req.verified_quantity, req.unit, product["base_unit"])
+            verified = _normalize_or_error(
+                req.verified_quantity, req.unit, product["base_unit"]
+            )
             if isinstance(verified, JSONResponse):
                 return verified
 
-            conn.execute("SELECT id FROM products WHERE id = %s FOR UPDATE", (product["id"],))
-            previous_inventory = _get_inventory(conn, product["product_code"], location["location_code"])
+            conn.execute("SELECT id FROM products WHERE id=%s FOR UPDATE", (product["id"],))
+            previous_inventory = _get_inventory(
+                conn, product["product_code"], location["location_code"]
+            )
+
+            if not previous_inventory:
+                return _error_json(
+                    status_code=404,
+                    code="INVENTORY_NOT_FOUND",
+                    message=(
+                        f"No inventory row exists for product '{product['product_code']}' "
+                        f"at location '{location['location_code']}'."
+                    ),
+                )
+
             previous_physical = Decimal(str(previous_inventory["physical_stock"]))
             variance = verified - previous_physical
 
@@ -373,19 +451,24 @@ def record_stock_adjustment(req: StockAdjustmentRequest):
 
             transaction = conn.execute(
                 """
-                INSERT INTO stock_transactions (
+                INSERT INTO stock_transactions(
                     transaction_no, transaction_type, product_id, location_id,
                     quantity_in, quantity_out, unit, effective_at, notes,
                     idempotency_key, status
                 )
-                VALUES (%s, 'VERIFICATION_ADJUSTMENT', %s, %s, %s, %s, %s, COALESCE(%s, NOW()), %s, %s, 'CONFIRMED')
+                VALUES(%s,'VERIFICATION_ADJUSTMENT',%s,%s,%s,%s,%s,COALESCE(%s,NOW()),%s,%s,'CONFIRMED')
                 RETURNING *
                 """,
-                (_transaction_no(), product["id"], location["id"], quantity_in, quantity_out,
-                 product["base_unit"], req.effective_at, notes, req.idempotency_key),
+                (
+                    _transaction_no(), product["id"], location["id"],
+                    quantity_in, quantity_out, product["base_unit"],
+                    req.effective_at, notes, req.idempotency_key
+                ),
             ).fetchone()
 
-            new_inventory = _get_inventory(conn, product["product_code"], location["location_code"])
+            new_inventory = _get_inventory(
+                conn, product["product_code"], location["location_code"]
+            )
             conn.commit()
 
             return success_response(
@@ -416,7 +499,11 @@ def record_stock_adjustment(req: StockAdjustmentRequest):
             conn.rollback()
             raise
 
-@router.get("/inventory/transactions", operation_id="getStockTransactions", summary="Get stock transaction history")
+@router.get(
+    "/inventory/transactions",
+    operation_id="getStockTransactions",
+    summary="Get stock transaction history",
+)
 def get_stock_transactions(
     product_code: str | None = Query(default=None, max_length=100),
     transaction_type: Literal[
@@ -434,37 +521,26 @@ def get_stock_transactions(
     params: list[object] = []
 
     if product_code:
-        filters.append("LOWER(p.product_code) = LOWER(%s)")
+        filters.append("LOWER(p.product_code)=LOWER(%s)")
         params.append(product_code.strip())
 
     if transaction_type:
-        filters.append("st.transaction_type = %s")
+        filters.append("st.transaction_type=%s")
         params.append(transaction_type)
 
     params.append(limit)
 
     query = f"""
         SELECT
-            st.id,
-            st.transaction_no,
-            st.transaction_type,
-            p.product_code,
-            p.product_name,
-            sl.location_code,
-            st.quantity_in,
-            st.quantity_out,
-            st.unit,
-            st.effective_at,
-            st.notes,
-            st.idempotency_key,
-            st.external_task_id,
-            st.external_activity_id,
-            st.reversal_of,
-            st.status,
-            st.created_at
+            st.id, st.transaction_no, st.transaction_type,
+            p.product_code, p.product_name, sl.location_code,
+            st.quantity_in, st.quantity_out, st.unit,
+            st.effective_at, st.notes, st.idempotency_key,
+            st.external_task_id, st.external_activity_id,
+            st.reversal_of, st.status, st.created_at
         FROM stock_transactions st
-        JOIN products p ON p.id = st.product_id
-        JOIN stock_locations sl ON sl.id = st.location_id
+        JOIN products p ON p.id=st.product_id
+        JOIN stock_locations sl ON sl.id=st.location_id
         WHERE {' AND '.join(filters)}
         ORDER BY st.effective_at DESC, st.created_at DESC
         LIMIT %s
