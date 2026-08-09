@@ -24,6 +24,12 @@ VERSION = "7.2.2"
 app = FastAPI(
     title="FarmAI Stock Manager API",
     version=VERSION,
+    servers=[
+        {
+            "url": "https://farmai-stock-manager-v7-2.vercel.app",
+            "description": "FarmAI Stock Manager API",
+        }
+    ],
 )
 
 # Agent-facing API v1: these are intentionally exposed in OpenAPI.
