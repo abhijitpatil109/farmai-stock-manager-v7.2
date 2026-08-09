@@ -1,6 +1,7 @@
 from .api.v1.health import router as health_router
 from .api.v1.inventory import router as inventory_router
 from .api.v1.products import router as products_router
+from .api.v1.transactions import router as transactions_router
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
@@ -23,6 +24,29 @@ app = FastAPI(title="FarmAI Stock Manager API", version=VERSION)
 app.include_router(health_router)
 app.include_router(inventory_router)
 app.include_router(products_router)
+app.include_router(transactions_router)
+
+@app.get("/debug/routes", include_in_schema=False)
+def debug_routes():
+    return {
+        "transactions_router": [
+            {
+                "path": route.path,
+                "methods": sorted(list(route.methods or [])),
+                "name": route.name,
+            }
+            for route in transactions_router.routes
+        ],
+        "app_v1_routes": [
+            {
+                "path": route.path,
+                "methods": sorted(list(route.methods or [])),
+                "name": route.name,
+            }
+            for route in app.routes
+            if route.path.startswith("/api/v1")
+        ],
+    }
 
 def d(value):
     return Decimal(str(value or 0))
