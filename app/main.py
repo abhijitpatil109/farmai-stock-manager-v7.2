@@ -4,6 +4,10 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 
+from .api.v1.health import router as health_router
+from .api.v1.inventory import router as inventory_router
+from .api.v1.products import router as products_router
+from .api.v1.transactions import router as transactions_router
 from .db import connection
 from .models import (
     AvailabilityRequest,
@@ -16,7 +20,23 @@ from .quantity import QuantityNormalizationError, canonical_unit, normalize_quan
 from .security import require_api_key
 
 VERSION = "7.2.2"
-app = FastAPI(title="FarmAI Stock Manager API", version=VERSION)
+
+app = FastAPI(
+    title="FarmAI Stock Manager API",
+    version=VERSION,
+    servers=[
+        {
+            "url": "https://farmai-stock-manager-v7-2.vercel.app",
+            "description": "FarmAI Stock Manager API",
+        }
+    ],
+)
+
+# Agent-facing API v1: these are intentionally exposed in OpenAPI.
+app.include_router(health_router)
+app.include_router(inventory_router)
+app.include_router(products_router)
+app.include_router(transactions_router)
 
 
 def d(value):
@@ -89,14 +109,28 @@ def root():
     return {"ok": True, "service": "FarmAI Stock Manager", "version": VERSION}
 
 
-@app.get("/health", dependencies=[Depends(require_api_key)])
+# ---------------------------------------------------------------------------
+# Legacy V7.2.2 routes.
+# They remain operational for backward compatibility, but are intentionally
+# hidden from OpenAPI so the Stock Agent sees only /api/v1 operations.
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/health",
+    dependencies=[Depends(require_api_key)],
+    include_in_schema=False,
+)
 def health():
     with connection() as conn:
         conn.execute("select 1")
     return {"ok": True, "data": {"version": VERSION, "status": "ok"}}
 
 
-@app.get("/products/search", dependencies=[Depends(require_api_key)])
+@app.get(
+    "/products/search",
+    dependencies=[Depends(require_api_key)],
+    include_in_schema=False,
+)
 def search_products(q: str = Query(min_length=1)):
     with connection() as conn:
         pattern = f"%{q}%"
@@ -117,7 +151,11 @@ def search_products(q: str = Query(min_length=1)):
     return {"ok": True, "data": rows}
 
 
-@app.get("/inventory", dependencies=[Depends(require_api_key)])
+@app.get(
+    "/inventory",
+    dependencies=[Depends(require_api_key)],
+    include_in_schema=False,
+)
 def inventory():
     with connection() as conn:
         rows = conn.execute(
@@ -126,7 +164,11 @@ def inventory():
     return {"ok": True, "data": rows}
 
 
-@app.post("/inventory/availability", dependencies=[Depends(require_api_key)])
+@app.post(
+    "/inventory/availability",
+    dependencies=[Depends(require_api_key)],
+    include_in_schema=False,
+)
 def availability(req: AvailabilityRequest):
     with connection() as conn:
         p = product(conn, req.product_code)
@@ -160,7 +202,11 @@ def availability(req: AvailabilityRequest):
     }
 
 
-@app.post("/inventory/transactions", dependencies=[Depends(require_api_key)])
+@app.post(
+    "/inventory/transactions",
+    dependencies=[Depends(require_api_key)],
+    include_in_schema=False,
+)
 def transact(req: TransactionRequest):
     with connection() as conn:
         try:
@@ -198,6 +244,7 @@ def transact(req: TransactionRequest):
             p = product(conn, req.product_code)
             loc = location(conn, req.location_code)
             source_unit = req.unit or p["base_unit"]
+
             normalized_quantity = (
                 normalized_or_422(req.quantity, source_unit, p["base_unit"])
                 if req.quantity is not None else None
@@ -208,9 +255,13 @@ def transact(req: TransactionRequest):
             )
 
             conn.execute("select id from products where id=%s for update", (p["id"],))
-            incoming_actions = {"recordOpeningBalance": "OPENING_BALANCE", "recordPurchase": "PURCHASE"}
+            incoming_actions = {
+                "recordOpeningBalance": "OPENING_BALANCE",
+                "recordPurchase": "PURCHASE",
+            }
             outgoing_actions = {
-                "recordUsage": "USAGE", "recordDamage": "DAMAGE",
+                "recordUsage": "USAGE",
+                "recordDamage": "DAMAGE",
                 "recordExpiryDisposal": "EXPIRY_DISPOSAL",
             }
 
@@ -240,7 +291,10 @@ def transact(req: TransactionRequest):
                 if qty_out > available(conn, p["id"], loc["id"]):
                     raise HTTPException(
                         409,
-                        detail={"code": "INSUFFICIENT_STOCK", "message": "Insufficient unreserved stock."},
+                        detail={
+                            "code": "INSUFFICIENT_STOCK",
+                            "message": "Insufficient unreserved stock.",
+                        },
                     )
 
             batch_id = None
@@ -272,9 +326,17 @@ def transact(req: TransactionRequest):
                 "ok": True,
                 "data": {
                     "duplicate": False,
-                    "submitted_quantity": req.verified_quantity if req.action == "recordVerification" else req.quantity,
+                    "submitted_quantity": (
+                        req.verified_quantity
+                        if req.action == "recordVerification"
+                        else req.quantity
+                    ),
                     "submitted_unit": canonical_unit(source_unit),
-                    "normalized_quantity": normalized_verified_quantity if req.action == "recordVerification" else normalized_quantity,
+                    "normalized_quantity": (
+                        normalized_verified_quantity
+                        if req.action == "recordVerification"
+                        else normalized_quantity
+                    ),
                     "normalized_unit": p["base_unit"],
                     "transaction": transaction,
                 },
@@ -284,7 +346,11 @@ def transact(req: TransactionRequest):
             raise
 
 
-@app.post("/inventory/import-opening-balances", dependencies=[Depends(require_api_key)])
+@app.post(
+    "/inventory/import-opening-balances",
+    dependencies=[Depends(require_api_key)],
+    include_in_schema=False,
+)
 def import_opening_balances(req: BulkOpeningBalanceRequest):
     """Import an opening-stock snapshot with validation, normalization and idempotency."""
     with connection() as conn:
@@ -314,8 +380,10 @@ def import_opening_balances(req: BulkOpeningBalanceRequest):
                 ).fetchone()
                 if not p:
                     errors.append({
-                        "index": index, "product_code": item.product_code,
-                        "code": "PRODUCT_NOT_FOUND", "message": "Product not found.",
+                        "index": index,
+                        "product_code": item.product_code,
+                        "code": "PRODUCT_NOT_FOUND",
+                        "message": "Product not found.",
                     })
                     continue
 
@@ -325,13 +393,19 @@ def import_opening_balances(req: BulkOpeningBalanceRequest):
                 ).fetchone()
                 if not loc:
                     errors.append({
-                        "index": index, "product_code": item.product_code,
-                        "code": "LOCATION_NOT_FOUND", "message": "Location not found.",
+                        "index": index,
+                        "product_code": item.product_code,
+                        "code": "LOCATION_NOT_FOUND",
+                        "message": "Location not found.",
                     })
                     continue
 
                 try:
-                    normalized_quantity = normalize_quantity(item.quantity, item.unit, p["base_unit"])
+                    normalized_quantity = normalize_quantity(
+                        item.quantity,
+                        item.unit,
+                        p["base_unit"],
+                    )
                 except QuantityNormalizationError as exc:
                     errors.append({
                         "index": index,
@@ -350,6 +424,7 @@ def import_opening_balances(req: BulkOpeningBalanceRequest):
                        where product_id=%s and location_id=%s and status='CONFIRMED'""",
                     (p["id"], loc["id"]),
                 ).fetchone()["qty"]
+
                 if req.reject_nonzero_existing and normalized_quantity > 0 and d(physical) != 0:
                     errors.append({
                         "index": index,
@@ -384,6 +459,7 @@ def import_opening_balances(req: BulkOpeningBalanceRequest):
 
             imported = []
             skipped_zero = []
+
             for entry in prepared:
                 index = entry["index"]
                 item = entry["item"]
@@ -404,7 +480,11 @@ def import_opening_balances(req: BulkOpeningBalanceRequest):
                     })
                     continue
 
-                conn.execute("select id from products where id=%s for update", (p["id"],))
+                conn.execute(
+                    "select id from products where id=%s for update",
+                    (p["id"],),
+                )
+
                 batch_id = None
                 if item.batch_number:
                     batch_id = conn.execute(
@@ -427,6 +507,7 @@ def import_opening_balances(req: BulkOpeningBalanceRequest):
                         p["base_unit"], item.effective_at, item.notes, item.idempotency_key,
                     ),
                 ).fetchone()
+
                 imported.append({
                     "index": index,
                     "product_code": p["product_code"],
@@ -440,6 +521,7 @@ def import_opening_balances(req: BulkOpeningBalanceRequest):
                 })
 
             conn.commit()
+
             return {
                 "ok": True,
                 "data": {
@@ -463,7 +545,11 @@ def import_opening_balances(req: BulkOpeningBalanceRequest):
             raise
 
 
-@app.post("/inventory/reservations", dependencies=[Depends(require_api_key)])
+@app.post(
+    "/inventory/reservations",
+    dependencies=[Depends(require_api_key)],
+    include_in_schema=False,
+)
 def reserve(req: ReservationRequest):
     with connection() as conn:
         try:
@@ -472,26 +558,44 @@ def reserve(req: ReservationRequest):
                 (req.idempotency_key,),
             ).fetchone()
             if duplicate:
-                return {"ok": True, "data": {"duplicate": True, "reservation": duplicate}}
+                return {
+                    "ok": True,
+                    "data": {
+                        "duplicate": True,
+                        "reservation": duplicate,
+                    },
+                }
+
             p = product(conn, req.product_code)
             loc = location(conn, "MAIN")
-            normalized_quantity = normalized_or_422(req.quantity, req.unit, p["base_unit"])
+            normalized_quantity = normalized_or_422(
+                req.quantity,
+                req.unit,
+                p["base_unit"],
+            )
+
             if normalized_quantity > available(conn, p["id"], loc["id"]):
                 raise HTTPException(
                     409,
-                    detail={"code": "INSUFFICIENT_STOCK", "message": "Insufficient stock to reserve."},
+                    detail={
+                        "code": "INSUFFICIENT_STOCK",
+                        "message": "Insufficient stock to reserve.",
+                    },
                 )
+
             row = conn.execute(
                 """insert into stock_reservations(
                    external_task_id,product_id,location_id,quantity_reserved,unit,
                    required_date,status,idempotency_key)
                    values(%s,%s,%s,%s,%s,%s,'ACTIVE',%s) returning *""",
                 (
-                    req.task_id, p["id"], loc["id"], normalized_quantity, p["base_unit"],
-                    req.required_date, req.idempotency_key,
+                    req.task_id, p["id"], loc["id"], normalized_quantity,
+                    p["base_unit"], req.required_date, req.idempotency_key,
                 ),
             ).fetchone()
+
             conn.commit()
+
             return {
                 "ok": True,
                 "data": {
@@ -508,7 +612,11 @@ def reserve(req: ReservationRequest):
             raise
 
 
-@app.post("/inventory/reservations/release", dependencies=[Depends(require_api_key)])
+@app.post(
+    "/inventory/reservations/release",
+    dependencies=[Depends(require_api_key)],
+    include_in_schema=False,
+)
 def release(req: ReleaseRequest):
     with connection() as conn:
         try:
@@ -517,27 +625,51 @@ def release(req: ReleaseRequest):
                 (req.idempotency_key,),
             ).fetchone()
             if event:
-                return {"ok": True, "data": {"duplicate": True, "event": event}}
+                return {
+                    "ok": True,
+                    "data": {
+                        "duplicate": True,
+                        "event": event,
+                    },
+                }
+
             reservation = conn.execute(
                 "select * from stock_reservations where id=%s for update",
                 (req.reservation_id,),
             ).fetchone()
+
             if not reservation:
                 raise HTTPException(
                     404,
-                    detail={"code": "RESERVATION_NOT_FOUND", "message": "Reservation not found."},
+                    detail={
+                        "code": "RESERVATION_NOT_FOUND",
+                        "message": "Reservation not found.",
+                    },
                 )
+
             conn.execute(
-                "update stock_reservations set quantity_released=quantity_reserved,status='RELEASED' where id=%s",
+                """update stock_reservations
+                   set quantity_released=quantity_reserved,status='RELEASED'
+                   where id=%s""",
                 (req.reservation_id,),
             )
+
             event = conn.execute(
-                """insert into reservation_events(reservation_id,event_type,idempotency_key)
+                """insert into reservation_events(
+                   reservation_id,event_type,idempotency_key)
                    values(%s,'RELEASED',%s) returning *""",
                 (req.reservation_id, req.idempotency_key),
             ).fetchone()
+
             conn.commit()
-            return {"ok": True, "data": {"duplicate": False, "event": event}}
+
+            return {
+                "ok": True,
+                "data": {
+                    "duplicate": False,
+                    "event": event,
+                },
+            }
         except Exception:
             conn.rollback()
             raise
