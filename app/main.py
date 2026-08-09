@@ -26,28 +26,6 @@ app.include_router(inventory_router)
 app.include_router(products_router)
 app.include_router(transactions_router)
 
-@app.get("/debug/routes", include_in_schema=False)
-def debug_routes():
-    return {
-        "transactions_router": [
-            {
-                "path": route.path,
-                "methods": sorted(list(route.methods or [])),
-                "name": route.name,
-            }
-            for route in transactions_router.routes
-        ],
-        "app_v1_routes": [
-            {
-                "path": route.path,
-                "methods": sorted(list(route.methods or [])),
-                "name": route.name,
-            }
-            for route in app.routes
-            if route.path.startswith("/api/v1")
-        ],
-    }
-
 def d(value):
     return Decimal(str(value or 0))
 
