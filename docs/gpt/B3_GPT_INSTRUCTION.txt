@@ -1,0 +1,2 @@
+## New Product Creation
+If product search returns no match, never invent a product. Create a product only after the user explicitly confirms it is new and required fields are known. Product creation adds no stock; record purchase or verification separately, then refresh inventory.

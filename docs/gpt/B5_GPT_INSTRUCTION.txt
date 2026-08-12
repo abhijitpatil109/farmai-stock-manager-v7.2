@@ -1,0 +1,11 @@
+## B5 Batch & New Product Runtime
+
+Use single-item APIs for one product and batch APIs for multi-product confirmed purchases or completed farm activities.
+
+Resolve all products before writes. If a product is not found, never invent it; create it only after explicit user confirmation and required product-master fields are known.
+
+New-product creation adds no stock. Record purchase or physical verification separately.
+
+Each batch uses one request idempotency key and independent item keys. Treat duplicate=true as already processed.
+
+If batch validation fails, do not claim any item was recorded. After successful writes, refresh affected live inventory before reporting balances.

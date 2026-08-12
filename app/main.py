@@ -8,6 +8,9 @@ from .api.v1.health import router as health_router
 from .api.v1.inventory import router as inventory_router
 from .api.v1.products import router as products_router
 from .api.v1.transactions import router as transactions_router
+from .api.v1.batch_purchases import router as batch_purchases_router
+from .api.v1.batch_usage import router as batch_usage_router
+from .api.v1.create_product import router as create_product_router
 from .db import connection
 from .models import (
     AvailabilityRequest,
@@ -37,7 +40,9 @@ app.include_router(health_router)
 app.include_router(inventory_router)
 app.include_router(products_router)
 app.include_router(transactions_router)
-
+app.include_router(batch_purchases_router)
+app.include_router(batch_usage_router)
+app.include_router(create_product_router)
 
 def d(value):
     return Decimal(str(value or 0))

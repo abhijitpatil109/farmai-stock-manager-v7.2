@@ -1,0 +1,2 @@
+## Batch & Product Actions
+Use batch APIs for multi-product confirmed purchases or completed farm activities; use single-item APIs otherwise. Resolve all products before writes. If search finds no product, create it only after explicit user confirmation. New-product creation adds zero stock; record the stock movement separately. Refresh live inventory after successful writes.

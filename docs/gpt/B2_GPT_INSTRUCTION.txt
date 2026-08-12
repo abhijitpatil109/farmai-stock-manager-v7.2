@@ -1,0 +1,2 @@
+## Batch Operations
+For one completed purchase or farm activity with multiple products, use the matching batch API. Resolve every product first. Batch usage is only for completed/confirmed work. Clarify ambiguous/missing items before writing. Treat duplicate success as already recorded. After success refresh live inventory before confirming balances.
