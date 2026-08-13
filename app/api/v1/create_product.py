@@ -1,8 +1,17 @@
 """
-FarmAI Stock Manager V7.2 - B3.1 Create Product API
-Backend-generated canonical product codes.
+FarmAI Stock Manager V7.2 - B3.2 Create Product API
+Backend-generated canonical product codes with isolated auto-code namespace.
 
 POST /api/v1/products
+
+Generated code examples
+-----------------------
+FERT-A000001
+MIC-A000001
+FUNG-A000001
+
+Legacy/manual codes such as FERT-113624 or FERT-191922 are ignored by
+the auto-code sequence and therefore cannot influence the next code.
 """
 
 from __future__ import annotations
@@ -108,6 +117,17 @@ def _column_names(conn):
 
 
 def generate_product_code(conn, category: str) -> str:
+    """
+    Generate the next FarmAI auto-code in an isolated namespace.
+
+    Only PREFIX-A###### codes participate in sequencing.
+    Existing legacy/manual numeric codes are ignored.
+
+    Examples:
+        FERT-A000001
+        FERT-A000002
+        MIC-A000001
+    """
     prefix = CATEGORY_PREFIX[category]
 
     row = conn.execute(
@@ -115,17 +135,17 @@ def generate_product_code(conn, category: str) -> str:
         SELECT product_code
         FROM products
         WHERE product_code ~ %s
-        ORDER BY CAST(SPLIT_PART(product_code, '-', 2) AS INTEGER) DESC
+        ORDER BY CAST(SUBSTRING(product_code FROM '[0-9]+$') AS INTEGER) DESC
         LIMIT 1
         """,
-        (rf"^{prefix}-[0-9]+$",),
+        (rf"^{prefix}-A[0-9]{{6}}$",),
     ).fetchone()
 
     if not row:
-        return f"{prefix}-000001"
+        return f"{prefix}-A000001"
 
-    last_number = int(row["product_code"].split("-")[-1])
-    return f"{prefix}-{last_number + 1:06d}"
+    last_number = int(row["product_code"].split("-A")[-1])
+    return f"{prefix}-A{last_number + 1:06d}"
 
 
 @router.post(
@@ -156,6 +176,8 @@ def create_product(req: CreateProductRequest):
 
     with connection() as conn:
         try:
+            # Serialize product creation so two concurrent requests cannot
+            # generate the same next canonical product code.
             conn.execute("LOCK TABLE products IN SHARE ROW EXCLUSIVE MODE")
 
             by_name = _existing_by_name_brand(
@@ -178,7 +200,6 @@ def create_product(req: CreateProductRequest):
                 )
 
             product_code = generate_product_code(conn, req.category)
-            print(f"DEBUG GENERATED PRODUCT CODE: {product_code}")
             available_columns = _column_names(conn)
 
             payload = {
@@ -212,7 +233,7 @@ def create_product(req: CreateProductRequest):
                 return _error(
                     500,
                     "PRODUCT_SCHEMA_MISMATCH",
-                    "The products table is missing fields required by the B3.1 API.",
+                    "The products table is missing fields required by the B3.2 API.",
                     {"missing_columns": sorted(missing)},
                 )
 
