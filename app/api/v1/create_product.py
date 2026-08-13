@@ -178,6 +178,7 @@ def create_product(req: CreateProductRequest):
                 )
 
             product_code = generate_product_code(conn, req.category)
+            print(f"DEBUG GENERATED PRODUCT CODE: {product_code}")
             available_columns = _column_names(conn)
 
             payload = {
