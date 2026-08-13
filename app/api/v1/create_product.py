@@ -1,27 +1,11 @@
 """
-FarmAI Stock Manager V7.2 - B3 Create Product API
+FarmAI Stock Manager V7.2 - B3.1 Create Product API
+Backend-generated canonical product codes.
 
 POST /api/v1/products
-
-Purpose
--------
-Create a new canonical FarmAI product in the product master.
-
-Safety
-------
-- Explicit product creation only.
-- Reject duplicate product_code.
-- Reject duplicate product_name + brand when already active.
-- Validate category and base unit.
-- Never creates stock automatically.
-- Newly created products begin with zero inventory until a purchase,
-  opening balance, or physical verification is recorded.
 """
 
 from __future__ import annotations
-
-import re
-from typing import Literal
 
 from fastapi import APIRouter, Depends
 from fastapi.encoders import jsonable_encoder
@@ -31,6 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 from ...core.responses import error_response, success_response
 from ...core.security import require_api_key
 from ...db import connection
+
 
 router = APIRouter(
     prefix="/api/v1",
@@ -51,29 +36,27 @@ ALLOWED_CATEGORIES = {
 
 ALLOWED_BASE_UNITS = {"kg", "g", "L", "ml"}
 
+CATEGORY_PREFIX = {
+    "Fertilizers": "FERT",
+    "Biostimulants & Growth Promoters": "BST",
+    "Micronutrients": "MIC",
+    "Fungicides": "FUNG",
+    "Insecticides": "INS",
+    "Herbicides": "HERB",
+    "Bio-fertilizers & Bio-pesticides": "BIO",
+    "Adjuvants / Stickers": "ADJ",
+}
+
 
 class CreateProductRequest(BaseModel):
-    product_code: str = Field(min_length=3, max_length=100)
     product_name: str = Field(min_length=1, max_length=200)
     category: str = Field(min_length=1, max_length=100)
     base_unit: str = Field(min_length=1, max_length=20)
-
     brand: str | None = Field(default=None, max_length=200)
     content: str | None = Field(default=None, max_length=500)
     primary_function: str | None = Field(default=None, max_length=500)
     notes: str | None = Field(default=None, max_length=2000)
     active: bool = True
-
-    @field_validator("product_code")
-    @classmethod
-    def validate_product_code(cls, value: str):
-        value = value.strip().upper()
-        if not re.fullmatch(r"[A-Z0-9][A-Z0-9_-]{2,99}", value):
-            raise ValueError(
-                "product_code may contain only letters, numbers, '-' and '_' "
-                "and must start with a letter or number."
-            )
-        return value
 
     @field_validator("product_name", "category", "base_unit")
     @classmethod
@@ -96,18 +79,6 @@ def _error(status_code: int, code: str, message: str, details=None):
             error_response(code=code, message=message, details=details)
         ),
     )
-
-
-def _existing_by_code(conn, product_code: str):
-    return conn.execute(
-        """
-        SELECT *
-        FROM products
-        WHERE LOWER(product_code)=LOWER(%s)
-        LIMIT 1
-        """,
-        (product_code,),
-    ).fetchone()
 
 
 def _existing_by_name_brand(conn, product_name: str, brand: str | None):
@@ -136,13 +107,34 @@ def _column_names(conn):
     return {row["column_name"] for row in rows}
 
 
+def generate_product_code(conn, category: str) -> str:
+    prefix = CATEGORY_PREFIX[category]
+
+    row = conn.execute(
+        """
+        SELECT product_code
+        FROM products
+        WHERE product_code ~ %s
+        ORDER BY CAST(SPLIT_PART(product_code, '-', 2) AS INTEGER) DESC
+        LIMIT 1
+        """,
+        (rf"^{prefix}-[0-9]+$",),
+    ).fetchone()
+
+    if not row:
+        return f"{prefix}-000001"
+
+    last_number = int(row["product_code"].split("-")[-1])
+    return f"{prefix}-{last_number + 1:06d}"
+
+
 @router.post(
     "/products",
     operation_id="createProduct",
     summary="Create a new canonical FarmAI product",
     description=(
-        "Creates a product-master record only. This operation does not add stock. "
-        "Use purchase, opening-balance, or verification APIs after creation."
+        "Creates a product-master record only. The backend generates the "
+        "canonical product code. This operation does not add stock."
     ),
 )
 def create_product(req: CreateProductRequest):
@@ -164,20 +156,16 @@ def create_product(req: CreateProductRequest):
 
     with connection() as conn:
         try:
-            by_code = _existing_by_code(conn, req.product_code)
-            if by_code:
-                return _error(
-                    409,
-                    "PRODUCT_CODE_EXISTS",
-                    f"Product code '{req.product_code}' already exists.",
-                    {
-                        "product_code": by_code["product_code"],
-                        "product_name": by_code["product_name"],
-                    },
-                )
+            conn.execute("LOCK TABLE products IN SHARE ROW EXCLUSIVE MODE")
 
-            by_name = _existing_by_name_brand(conn, req.product_name, req.brand)
+            by_name = _existing_by_name_brand(
+                conn,
+                req.product_name,
+                req.brand,
+            )
+
             if by_name:
+                conn.rollback()
                 return _error(
                     409,
                     "PRODUCT_ALREADY_EXISTS",
@@ -189,12 +177,11 @@ def create_product(req: CreateProductRequest):
                     },
                 )
 
-            # Support the current FarmAI products table while remaining tolerant
-            # of optional metadata columns that may not yet exist.
+            product_code = generate_product_code(conn, req.category)
             available_columns = _column_names(conn)
 
             payload = {
-                "product_code": req.product_code,
+                "product_code": product_code,
                 "product_name": req.product_name,
                 "category": req.category,
                 "base_unit": req.base_unit,
@@ -211,18 +198,26 @@ def create_product(req: CreateProductRequest):
                 if key in available_columns
             }
 
-            mandatory = {"product_code", "product_name", "category", "base_unit"}
+            mandatory = {
+                "product_code",
+                "product_name",
+                "category",
+                "base_unit",
+            }
+
             missing = mandatory - set(insert_payload)
             if missing:
+                conn.rollback()
                 return _error(
                     500,
                     "PRODUCT_SCHEMA_MISMATCH",
-                    "The products table is missing fields required by the B3 API.",
+                    "The products table is missing fields required by the B3.1 API.",
                     {"missing_columns": sorted(missing)},
                 )
 
             columns = list(insert_payload.keys())
             placeholders = ",".join(["%s"] * len(columns))
+
             sql = (
                 f"INSERT INTO products ({','.join(columns)}) "
                 f"VALUES ({placeholders}) RETURNING *"
@@ -239,9 +234,11 @@ def create_product(req: CreateProductRequest):
                 {
                     "created": True,
                     "product": row,
+                    "product_code": row["product_code"],
                     "initial_stock": 0,
                     "message": (
-                        "Product created in the master. No stock movement was created."
+                        "Product created in the master. "
+                        "No stock movement was created."
                     ),
                 },
                 meta={"source": "postgresql.products"},
