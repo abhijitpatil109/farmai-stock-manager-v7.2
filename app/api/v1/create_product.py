@@ -1,30 +1,31 @@
 """
-FarmAI Stock Manager V7.2 - B3.4 Production Create Product API
+FarmAI Stock Manager V7.2 - B3.5 Production Create Product API
 
 POST /api/v1/products
 
-This version preserves the full B3.3 production behavior and changes ONLY
-the canonical code allocation policy.
-
-Canonical code policy
----------------------
+Canonical product code policy
+-----------------------------
 Backend-generated codes use a dedicated production namespace:
 
-    FERT-P0001
-    FERT-P0002
-    MIC-P0001
-    FUNG-P0001
+    FERT-P0017
+    FERT-P0018
+    MIC-P0009
 
-Rules:
-1. GPT/user never supplies product_code.
-2. Only PREFIX-P#### codes participate in automatic sequencing.
-3. Legacy/manual codes such as FERT-113624, FERT-191922, FERT-017 and
-   FERT-A000001 are ignored.
-4. The highest existing P-code for the category determines the next number.
-5. Product creation is serialized with a PostgreSQL table lock.
-6. Product creation adds NO inventory. Purchase/verification is separate.
-7. Optional product metadata is inserted only when the corresponding
-   PostgreSQL column exists, preserving compatibility with the current schema.
+Numbering rule
+--------------
+1. Count ALL products already present in the selected category, including
+   legacy/manual/inactive records.
+2. Initial candidate number = category_count + 1.
+3. Generate PREFIX-P####.
+4. If that candidate code already exists, increment until a free code is found.
+5. Product creation is serialized with a PostgreSQL table lock so concurrent
+   requests cannot allocate the same code.
+
+Examples:
+- Fertilizers currently has 16 products -> next generated code = FERT-P0017
+- Micronutrients currently has 8 products -> next generated code = MIC-P0009
+
+Product creation adds NO stock. Purchase/opening balance/verification is separate.
 """
 
 from __future__ import annotations
@@ -75,6 +76,7 @@ class CreateProductRequest(BaseModel):
     product_name: str = Field(min_length=1, max_length=200)
     category: str = Field(min_length=1, max_length=100)
     base_unit: str = Field(min_length=1, max_length=20)
+
     brand: str | None = Field(default=None, max_length=200)
     content: str | None = Field(default=None, max_length=500)
     primary_function: str | None = Field(default=None, max_length=500)
@@ -135,43 +137,58 @@ def _column_names(conn):
     return {row["column_name"] for row in rows}
 
 
-def generate_product_code(conn, category: str) -> str:
+def _product_code_exists(conn, product_code: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM products
+        WHERE LOWER(product_code)=LOWER(%s)
+        LIMIT 1
+        """,
+        (product_code,),
+    ).fetchone()
+
+    return row is not None
+
+
+def generate_product_code(conn, category: str) -> tuple[str, int, int]:
     """
-    Generate the next immutable FarmAI production code for a category.
+    Generate a category-sequential canonical code based on the actual number
+    of products already present in that category.
 
-    Examples:
-        FERT-P0001
-        FERT-P0002
-        MIC-P0001
-
-    Only PREFIX-P#### codes participate in sequencing.
-    Legacy/manual/test formats are intentionally ignored.
+    Returns:
+        (product_code, category_count_before_create, allocated_sequence_number)
     """
     prefix = CATEGORY_PREFIX[category]
 
     row = conn.execute(
         """
-        SELECT product_code
+        SELECT COUNT(*) AS product_count
         FROM products
-        WHERE product_code ~ %s
-        ORDER BY CAST(SUBSTRING(product_code FROM '[0-9]+$') AS INTEGER) DESC
-        LIMIT 1
+        WHERE category=%s
         """,
-        (rf"^{prefix}-P[0-9]{{4}}$",),
+        (category,),
     ).fetchone()
 
-    if not row:
-        return f"{prefix}-P0001"
-
-    last_number = int(row["product_code"].rsplit("-P", 1)[-1])
-    next_number = last_number + 1
+    category_count = int(row["product_count"] or 0)
+    next_number = category_count + 1
 
     if next_number > 9999:
         raise ValueError(
             f"Product-code namespace exhausted for category '{category}'."
         )
 
-    return f"{prefix}-P{next_number:04d}"
+    while next_number <= 9999:
+        candidate = f"{prefix}-P{next_number:04d}"
+
+        if not _product_code_exists(conn, candidate):
+            return candidate, category_count, next_number
+
+        next_number += 1
+
+    raise ValueError(
+        f"Product-code namespace exhausted for category '{category}'."
+    )
 
 
 @router.post(
@@ -179,9 +196,9 @@ def generate_product_code(conn, category: str) -> str:
     operation_id="createProduct",
     summary="Create a new canonical FarmAI product",
     description=(
-        "Creates a product-master record only. The backend generates an "
-        "immutable category-specific canonical product code. "
-        "This operation does not add stock."
+        "Creates a product-master record only. The backend counts existing "
+        "products in the selected category and generates the next canonical "
+        "category-sequence product code. This operation does not add stock."
     ),
 )
 def create_product(req: CreateProductRequest):
@@ -207,6 +224,8 @@ def create_product(req: CreateProductRequest):
 
     with connection() as conn:
         try:
+            # Serialize product creation so concurrent requests cannot allocate
+            # the same category-sequence code.
             conn.execute(
                 "LOCK TABLE products IN SHARE ROW EXCLUSIVE MODE"
             )
@@ -234,7 +253,11 @@ def create_product(req: CreateProductRequest):
                     },
                 )
 
-            product_code = generate_product_code(
+            (
+                product_code,
+                category_count_before,
+                allocated_sequence_number,
+            ) = generate_product_code(
                 conn,
                 req.category,
             )
@@ -276,7 +299,7 @@ def create_product(req: CreateProductRequest):
                     "PRODUCT_SCHEMA_MISMATCH",
                     (
                         "The products table is missing "
-                        "fields required by the B3.4 API."
+                        "fields required by the B3.5 API."
                     ),
                     {"missing_columns": sorted(missing)},
                 )
@@ -304,10 +327,12 @@ def create_product(req: CreateProductRequest):
                     "created": True,
                     "product": row,
                     "product_code": row["product_code"],
+                    "category_product_count_before_create": category_count_before,
+                    "allocated_sequence_number": allocated_sequence_number,
                     "initial_stock": 0,
                     "message": (
-                        "Product created in the master using a "
-                        "backend-generated canonical product code. "
+                        "Product created in the master using the next "
+                        "category-sequence canonical code. "
                         "No stock movement was created."
                     ),
                 },
