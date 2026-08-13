@@ -301,7 +301,8 @@ def record_stock_purchase(req: PurchaseRequest):
                     status_code=404,
                     content=error_response(
                         code="PRODUCT_NOT_FOUND",
-                        message=f"Product '{req.product_code}' was not found.",
+                        message=(f"Product '{req.product_code}' was not found. "
+                                 "Create the product first using createProduct."),
                     ),
                 )
 
@@ -796,7 +797,7 @@ def record_stock_adjustment(req: StockAdjustmentRequest):
 # ---------------------------------------------------------------------------
 
 @router.get(
-    "/inventory/transactions",
+    "/transactions",
     operation_id="getStockTransactions",
     summary="Get stock transaction history",
     description=(
