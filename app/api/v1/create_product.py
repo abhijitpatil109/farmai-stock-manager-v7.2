@@ -1,17 +1,28 @@
 """
-FarmAI Stock Manager V7.2 - B3.2 Create Product API
-Backend-generated canonical product codes with isolated auto-code namespace.
+FarmAI Stock Manager V7.2 - B3.3 Create Product API
+Category-count based canonical product codes.
 
 POST /api/v1/products
 
-Generated code examples
------------------------
-FERT-A000001
-MIC-A000001
-FUNG-A000001
+Code policy
+-----------
+For a new product:
+1. Count all products already present in the same category.
+2. Start the next number at count + 1.
+3. Generate PREFIX-### (example: FERT-021).
+4. If that code already exists because of historical gaps/legacy data,
+   increment until a free code is found.
 
-Legacy/manual codes such as FERT-113624 or FERT-191922 are ignored by
-the auto-code sequence and therefore cannot influence the next code.
+Examples
+--------
+If Fertilizers has 20 products:
+    next new fertilizer -> FERT-021
+
+If Micronutrients has 8 products:
+    next new micronutrient -> MIC-009
+
+The products table is locked during creation so concurrent requests
+cannot allocate the same code.
 """
 
 from __future__ import annotations
@@ -116,36 +127,52 @@ def _column_names(conn):
     return {row["column_name"] for row in rows}
 
 
-def generate_product_code(conn, category: str) -> str:
+def _product_code_exists(conn, product_code: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM products
+        WHERE LOWER(product_code)=LOWER(%s)
+        LIMIT 1
+        """,
+        (product_code,),
+    ).fetchone()
+    return row is not None
+
+
+def generate_product_code(conn, category: str) -> tuple[str, int]:
     """
-    Generate the next FarmAI auto-code in an isolated namespace.
+    Count products in the category first, then allocate count + 1.
 
-    Only PREFIX-A###### codes participate in sequencing.
-    Existing legacy/manual numeric codes are ignored.
+    All products are counted, including inactive ones, so historical product
+    positions are not silently reused.
 
-    Examples:
-        FERT-A000001
-        FERT-A000002
-        MIC-A000001
+    A collision-safe increment is included because older/manual product codes
+    may already occupy the calculated number.
     """
     prefix = CATEGORY_PREFIX[category]
 
     row = conn.execute(
         """
-        SELECT product_code
+        SELECT COUNT(*) AS product_count
         FROM products
-        WHERE product_code ~ %s
-        ORDER BY CAST(SUBSTRING(product_code FROM '[0-9]+$') AS INTEGER) DESC
-        LIMIT 1
+        WHERE category=%s
         """,
-        (rf"^{prefix}-A[0-9]{{6}}$",),
+        (category,),
     ).fetchone()
 
-    if not row:
-        return f"{prefix}-A000001"
+    category_count = int(row["product_count"] or 0)
+    next_number = category_count + 1
 
-    last_number = int(row["product_code"].split("-A")[-1])
-    return f"{prefix}-A{last_number + 1:06d}"
+    while True:
+        # 3 digits keeps codes compact while preserving readable order:
+        # FERT-001, FERT-002, ... FERT-999, FERT-1000.
+        product_code = f"{prefix}-{next_number:03d}"
+
+        if not _product_code_exists(conn, product_code):
+            return product_code, category_count
+
+        next_number += 1
 
 
 @router.post(
@@ -153,8 +180,9 @@ def generate_product_code(conn, category: str) -> str:
     operation_id="createProduct",
     summary="Create a new canonical FarmAI product",
     description=(
-        "Creates a product-master record only. The backend generates the "
-        "canonical product code. This operation does not add stock."
+        "Creates a product-master record only. The backend counts products "
+        "in the selected category and generates the next canonical code. "
+        "This operation does not add stock."
     ),
 )
 def create_product(req: CreateProductRequest):
@@ -176,8 +204,7 @@ def create_product(req: CreateProductRequest):
 
     with connection() as conn:
         try:
-            # Serialize product creation so two concurrent requests cannot
-            # generate the same next canonical product code.
+            # Serialize product creation to prevent duplicate code allocation.
             conn.execute("LOCK TABLE products IN SHARE ROW EXCLUSIVE MODE")
 
             by_name = _existing_by_name_brand(
@@ -199,7 +226,11 @@ def create_product(req: CreateProductRequest):
                     },
                 )
 
-            product_code = generate_product_code(conn, req.category)
+            product_code, category_count_before = generate_product_code(
+                conn,
+                req.category,
+            )
+
             available_columns = _column_names(conn)
 
             payload = {
@@ -233,7 +264,7 @@ def create_product(req: CreateProductRequest):
                 return _error(
                     500,
                     "PRODUCT_SCHEMA_MISMATCH",
-                    "The products table is missing fields required by the B3.2 API.",
+                    "The products table is missing fields required by the B3.3 API.",
                     {"missing_columns": sorted(missing)},
                 )
 
@@ -257,10 +288,11 @@ def create_product(req: CreateProductRequest):
                     "created": True,
                     "product": row,
                     "product_code": row["product_code"],
+                    "category_product_count_before_create": category_count_before,
                     "initial_stock": 0,
                     "message": (
-                        "Product created in the master. "
-                        "No stock movement was created."
+                        "Product created in the master using the next "
+                        "category-sequence code. No stock movement was created."
                     ),
                 },
                 meta={"source": "postgresql.products"},
