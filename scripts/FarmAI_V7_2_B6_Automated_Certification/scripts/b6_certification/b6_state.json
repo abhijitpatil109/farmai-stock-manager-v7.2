@@ -1,14 +1,14 @@
 {
-  "run_id": "20260813190704-AA5810",
-  "idempotency_prefix": "b6-20260813190704-aa5810",
+  "run_id": "20260813193219-E31206",
+  "idempotency_prefix": "b6-20260813193219-e31206",
   "products": [
     {
-      "product_code": "FERT-P0020",
-      "product_name": "B6 CERT Fertilizer A 20260813190704-AA5810"
+      "product_code": "FERT-P0022",
+      "product_name": "B6 CERT Fertilizer A 20260813193219-E31206"
     },
     {
-      "product_code": "FERT-P0021",
-      "product_name": "B6 CERT Fertilizer B 20260813190704-AA5810"
+      "product_code": "FERT-P0023",
+      "product_name": "B6 CERT Fertilizer B 20260813193219-E31206"
     }
   ],
   "transactions": []
