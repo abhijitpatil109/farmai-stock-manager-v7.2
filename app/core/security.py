@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import hmac
+import os
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader
-
-from .config import settings
 
 
 api_key_header = APIKeyHeader(
@@ -17,18 +16,18 @@ api_key_header = APIKeyHeader(
 
 
 def _configured_api_key() -> str:
-    value = getattr(settings, "api_key", None)
+    """
+    Read the server-side API key directly from environment variables.
 
-    if value is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "code": "API_KEY_NOT_CONFIGURED",
-                "message": "FarmAI API authentication is not configured.",
-            },
-        )
-
-    value = str(value).strip()
+    Supports both names so this remains compatible with existing deployments:
+    - FARMAI_API_KEY
+    - API_KEY
+    """
+    value = (
+        os.getenv("FARMAI_API_KEY")
+        or os.getenv("API_KEY")
+        or ""
+    ).strip()
 
     if not value:
         raise HTTPException(
@@ -45,6 +44,9 @@ def _configured_api_key() -> str:
 def require_api_key(
     supplied_api_key: str | None = Depends(api_key_header),
 ) -> str:
+    """
+    Validate the X-API-Key header and expose a proper OpenAPI apiKey scheme.
+    """
     if supplied_api_key is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -54,13 +56,10 @@ def require_api_key(
             },
         )
 
-    expected_api_key = _configured_api_key()
-    supplied_api_key = supplied_api_key.strip()
+    supplied = supplied_api_key.strip()
+    expected = _configured_api_key()
 
-    if not supplied_api_key or not hmac.compare_digest(
-        supplied_api_key,
-        expected_api_key,
-    ):
+    if not supplied or not hmac.compare_digest(supplied, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
@@ -69,4 +68,4 @@ def require_api_key(
             },
         )
 
-    return supplied_api_key
+    return supplied
