@@ -69,3 +69,45 @@ def require_api_key(
         )
 
     return supplied
+import logging
+
+logger = logging.getLogger("farmai.security")
+
+def require_api_key(
+    supplied_api_key: str | None = Depends(api_key_header),
+) -> str:
+
+    logger.info(
+        "FarmAI auth debug: header_present=%s header_length=%s",
+        supplied_api_key is not None,
+        len(supplied_api_key) if supplied_api_key else 0,
+    )
+
+    if supplied_api_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "UNAUTHORIZED",
+                "message": "Invalid or missing API key.",
+            },
+        )
+
+    supplied = supplied_api_key.strip()
+    expected = _configured_api_key()
+
+    logger.info(
+        "FarmAI auth debug: supplied_length=%s expected_length=%s",
+        len(supplied),
+        len(expected),
+    )
+
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "UNAUTHORIZED",
+                "message": "Invalid or missing API key.",
+            },
+        )
+
+    return supplied
