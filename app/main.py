@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 
 from .api.v1.health import router as health_router
 from .api.v1.inventory import router as inventory_router
+from .api.v1.registry import router as registry_router
 from .api.v1.products import router as products_router
 from .api.v1.transactions import router as transactions_router
 from .api.v1.batch_purchases import router as batch_purchases_router
@@ -38,6 +39,7 @@ app = FastAPI(
 # Agent-facing API v1: these are intentionally exposed in OpenAPI.
 app.include_router(health_router)
 app.include_router(inventory_router)
+app.include_router(registry_router)
 app.include_router(products_router)
 app.include_router(transactions_router)
 app.include_router(batch_purchases_router)
