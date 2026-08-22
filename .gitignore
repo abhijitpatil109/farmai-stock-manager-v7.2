@@ -1,0 +1,27 @@
+
+# Python virtual environments
+.venv/
+venv/
+
+# Python virtual environments
+.venv/
+venv/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest
+.pytest_cache/
+**/.pytest_cache/
+
+# Python virtual environments
+.venv/
+venv/
+env/
