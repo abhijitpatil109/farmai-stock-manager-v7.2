@@ -19,13 +19,64 @@ modify inventory, transactions, products, or metadata.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
 from ...core.responses import success_response
 from ...core.security import require_api_key
 from ...db import connection
+
+
+class RegistryProductV72(BaseModel):
+    product_code: str
+    product_en: str
+    product_mr: str | None = None
+    show_marathi_name: bool
+    stock_quantity: Decimal
+    stock_unit: str | None = None
+    stock_display: str
+    status_code: Literal["GOOD", "LOW", "OUT", "UNKNOWN"]
+    status_display: str
+    used_for_en: str
+    used_for_mr: str
+    apply_when_en: str
+    apply_when_mr: str
+    dose: str
+    content: str
+    farmai_advice_en: str
+    farmai_advice_mr: str
+    inventory_discrepancy: bool
+
+
+class RegistryCategoryV72(BaseModel):
+    order: int = Field(ge=1, le=8)
+    key: str
+    name_en: str
+    name_mr: str
+    products: list[RegistryProductV72]
+
+
+class RegistryDataV72(BaseModel):
+    registry_version: Literal["7.2"]
+    source: str
+    columns: list[str]
+    categories: list[RegistryCategoryV72]
+
+
+class RegistryMetaV72(BaseModel):
+    category_count: int
+    product_count: int
+    unmapped_product_count: int
+    unmapped_product_codes: list[str]
+    source: str
+
+
+class RegistryEnvelopeV72(BaseModel):
+    ok: bool
+    data: RegistryDataV72
+    meta: RegistryMetaV72
 
 
 router = APIRouter(
@@ -168,6 +219,7 @@ def _show_marathi_product_name(product_name: str, product_name_mr: str | None) -
 @router.get(
     "/registry/v7.2",
     operation_id="getRegistryV72",
+    response_model=RegistryEnvelopeV72,
     summary="Get FarmAI Stock Registry V7.2",
     description=(
         "Returns the authoritative presentation-ready FarmAI Stock Registry V7.2 "

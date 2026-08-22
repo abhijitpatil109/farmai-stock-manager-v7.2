@@ -23,7 +23,7 @@ from .models import (
 from .quantity import QuantityNormalizationError, canonical_unit, normalize_quantity
 from .security import require_api_key
 
-VERSION = "7.2.2"
+VERSION = "7.2.3"
 
 app = FastAPI(
     title="FarmAI Stock Manager API",
