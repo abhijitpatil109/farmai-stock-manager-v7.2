@@ -1,147 +1,382 @@
 openapi: 3.1.0
 info:
   title: FarmAI Stock Manager API
-  version: 7.2.2
+  version: 7.2.3
 servers:
-  - url: https://REPLACE_WITH_VERCEL_DOMAIN
-security:
-  - ApiKeyAuth: []
+  - url: https://farmai-stock-manager-v7-2.vercel.app
+    description: FarmAI Stock Manager API
+
 paths:
-  /health:
+  /api/v1/health:
     get:
       operationId: healthCheck
+      summary: Health Check
+      description: Checks API and PostgreSQL connectivity.
+      security: [{FarmAIApiKey: []}]
       responses:
-        '200': {description: Healthy}
-  /products/search:
+        '200': {description: Successful Response}
+
+  /api/v1/registry/v7.2:
     get:
-      operationId: searchProducts
-      parameters:
-        - {name: q, in: query, required: true, schema: {type: string}}
+      operationId: getRegistryV72
+      summary: Get FarmAI Stock Registry V7.2
+      description: >
+        Returns the live FarmAI Stock Registry V7.2 with all 8 frozen categories
+        and bilingual metadata. Use for today's/current stock, inventory, register,
+        registry, FULL REGISTRY and CATEGORY MODE. Do not substitute
+        getCurrentInventory.
+      security: [{FarmAIApiKey: []}]
       responses:
-        '200': {description: Products}
-  /inventory:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistryEnvelopeV72'
+
+  /api/v1/inventory:
     get:
       operationId: getCurrentInventory
+      summary: Get current FarmAI inventory
+      description: >
+        Returns compact live physical, reserved and available stock. Use for
+        internal/compact inventory reads only; do not use for FULL REGISTRY.
+      security: [{FarmAIApiKey: []}]
       responses:
-        '200': {description: Inventory}
-  /inventory/availability:
+        '200': {description: Successful Response}
+
+  /api/v1/inventory/{product_code}:
+    get:
+      operationId: getProductInventory
+      summary: Get inventory for one product
+      description: Returns live stock for one canonical FarmAI product code.
+      security: [{FarmAIApiKey: []}]
+      parameters:
+        - name: product_code
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: Successful Response}
+
+  /api/v1/products/search:
+    get:
+      operationId: searchProducts
+      summary: Search FarmAI product master
+      description: Searches active products by name, code, brand or active ingredient.
+      security: [{FarmAIApiKey: []}]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 100}
+      responses:
+        '200': {description: Successful Response}
+
+  /api/v1/products/{product_code}:
+    get:
+      operationId: getProduct
+      summary: Get one FarmAI product
+      description: Returns canonical product-master metadata; does not return live stock.
+      security: [{FarmAIApiKey: []}]
+      parameters:
+        - name: product_code
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: Successful Response}
+
+  /api/v1/inventory/purchases:
     post:
-      operationId: checkStockAvailability
+      operationId: recordStockPurchase
+      summary: Record a stock purchase
+      security: [{FarmAIApiKey: []}]
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [product_code, required_quantity, unit]
-              properties:
-                product_code: {type: string}
-                required_quantity: {type: number, exclusiveMinimum: 0}
-                unit: {type: string}
-                required_date: {type: string, format: date}
+            schema: {$ref: '#/components/schemas/PurchaseRequest'}
       responses:
-        '200': {description: Availability}
-  /inventory/transactions:
+        '200': {description: Successful Response}
+
+  /api/v1/inventory/issues:
     post:
-      operationId: recordStockTransaction
+      operationId: recordStockUsage
+      summary: Record stock usage
+      security: [{FarmAIApiKey: []}]
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [action, idempotency_key]
-              properties:
-                action:
-                  type: string
-                  enum: [recordOpeningBalance,recordPurchase,recordUsage,recordDamage,recordExpiryDisposal,recordVerification,reverseTransaction]
-                product_code: {type: string}
-                quantity: {type: number}
-                verified_quantity: {type: number}
-                unit: {type: string}
-                location_code: {type: string}
-                batch_number: {type: string}
-                expiry_date: {type: string, format: date}
-                effective_at: {type: string, format: date-time}
-                notes: {type: string}
-                external_task_id: {type: string}
-                external_activity_id: {type: string}
-                transaction_id: {type: string, format: uuid}
-                idempotency_key: {type: string, minLength: 8}
+            schema: {$ref: '#/components/schemas/StockIssueRequest'}
       responses:
-        '200': {description: Transaction}
-  /inventory/import-opening-balances:
+        '200': {description: Successful Response}
+
+  /api/v1/inventory/adjustments:
     post:
-      operationId: importOpeningBalances
-      summary: Import opening balances atomically
+      operationId: recordStockAdjustment
+      summary: Record a physical stock adjustment
+      security: [{FarmAIApiKey: []}]
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [opening_balances]
-              properties:
-                atomic: {type: boolean, default: true}
-                reject_nonzero_existing: {type: boolean, default: true}
-                opening_balances:
-                  type: array
-                  minItems: 1
-                  maxItems: 500
-                  items:
-                    type: object
-                    required: [idempotency_key, product_code, quantity, unit]
-                    properties:
-                      action: {type: string, enum: [recordOpeningBalance], default: recordOpeningBalance}
-                      idempotency_key: {type: string, minLength: 8}
-                      product_code: {type: string}
-                      quantity: {type: number, exclusiveMinimum: 0}
-                      unit: {type: string}
-                      location_code: {type: string, default: MAIN}
-                      batch_number: {type: string}
-                      expiry_date: {type: string, format: date}
-                      effective_at: {type: string, format: date-time}
-                      notes: {type: string}
+            schema: {$ref: '#/components/schemas/StockAdjustmentRequest'}
       responses:
-        '200': {description: Import completed}
-        '422': {description: Atomic validation failed}
-  /inventory/reservations:
+        '200': {description: Successful Response}
+
+  /api/v1/transactions:
+    get:
+      operationId: getStockTransactions
+      summary: Get stock transaction history
+      security: [{FarmAIApiKey: []}]
+      parameters:
+        - {name: product_code, in: query, required: false, schema: {type: string}}
+        - {name: transaction_type, in: query, required: false, schema: {type: string}}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+      responses:
+        '200': {description: Successful Response}
+
+  /api/v1/inventory/purchases/batch:
     post:
-      operationId: reserveStock
+      operationId: recordBatchStockPurchase
+      summary: Record multiple stock purchases atomically
+      security: [{FarmAIApiKey: []}]
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [task_id,product_code,quantity,unit,idempotency_key]
-              properties:
-                task_id: {type: string}
-                product_code: {type: string}
-                quantity: {type: number, exclusiveMinimum: 0}
-                unit: {type: string}
-                required_date: {type: string, format: date}
-                idempotency_key: {type: string, minLength: 8}
+            schema: {$ref: '#/components/schemas/BatchPurchaseRequest'}
       responses:
-        '200': {description: Reservation}
-  /inventory/reservations/release:
+        '200': {description: Successful Response}
+
+  /api/v1/inventory/issues/batch:
     post:
-      operationId: releaseStockReservation
+      operationId: recordBatchStockUsage
+      summary: Record multiple stock usages as one completed activity
+      security: [{FarmAIApiKey: []}]
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [reservation_id,idempotency_key]
-              properties:
-                reservation_id: {type: string, format: uuid}
-                idempotency_key: {type: string, minLength: 8}
+            schema: {$ref: '#/components/schemas/BatchUsageRequest'}
       responses:
-        '200': {description: Released}
+        '200': {description: Successful Response}
+
+  /api/v1/products:
+    post:
+      operationId: createProduct
+      summary: Create a new canonical FarmAI product
+      description: Creates product master only; does not add stock.
+      security: [{FarmAIApiKey: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateProductRequest'}
+      responses:
+        '200': {description: Successful Response}
+
 components:
   securitySchemes:
-    ApiKeyAuth:
+    FarmAIApiKey:
       type: apiKey
       in: header
       name: X-API-Key
+      description: FarmAI Stock Manager API key
+
+  schemas:
+    RegistryEnvelopeV72:
+      type: object
+      required: [ok, data, meta]
+      properties:
+        ok: {type: boolean}
+        data: {$ref: '#/components/schemas/RegistryDataV72'}
+        meta: {$ref: '#/components/schemas/RegistryMetaV72'}
+
+    RegistryDataV72:
+      type: object
+      required: [registry_version, source, columns, categories]
+      properties:
+        registry_version: {type: string, const: '7.2'}
+        source: {type: string}
+        columns:
+          type: array
+          items: {type: string}
+        categories:
+          type: array
+          items: {$ref: '#/components/schemas/RegistryCategoryV72'}
+
+    RegistryCategoryV72:
+      type: object
+      required: [order, key, name_en, name_mr, products]
+      properties:
+        order: {type: integer, minimum: 1, maximum: 8}
+        key: {type: string}
+        name_en: {type: string}
+        name_mr: {type: string}
+        products:
+          type: array
+          items: {$ref: '#/components/schemas/RegistryProductV72'}
+
+    RegistryProductV72:
+      type: object
+      required:
+        - product_code
+        - product_en
+        - show_marathi_name
+        - stock_quantity
+        - stock_display
+        - status_code
+        - status_display
+        - used_for_en
+        - used_for_mr
+        - apply_when_en
+        - apply_when_mr
+        - dose
+        - content
+        - farmai_advice_en
+        - farmai_advice_mr
+        - inventory_discrepancy
+      properties:
+        product_code: {type: string}
+        product_en: {type: string}
+        product_mr: {type: [string, 'null']}
+        show_marathi_name: {type: boolean}
+        stock_quantity: {type: number}
+        stock_unit: {type: [string, 'null']}
+        stock_display: {type: string}
+        status_code:
+          type: string
+          enum: [GOOD, LOW, OUT, UNKNOWN]
+        status_display: {type: string}
+        used_for_en: {type: string}
+        used_for_mr: {type: string}
+        apply_when_en: {type: string}
+        apply_when_mr: {type: string}
+        dose: {type: string}
+        content: {type: string}
+        farmai_advice_en: {type: string}
+        farmai_advice_mr: {type: string}
+        inventory_discrepancy: {type: boolean}
+
+    RegistryMetaV72:
+      type: object
+      required: [category_count, product_count, unmapped_product_count, unmapped_product_codes, source]
+      properties:
+        category_count: {type: integer}
+        product_count: {type: integer}
+        unmapped_product_count: {type: integer}
+        unmapped_product_codes:
+          type: array
+          items: {type: string}
+        source: {type: string}
+
+    PurchaseRequest:
+      type: object
+      required: [product_code, quantity, unit, idempotency_key]
+      properties:
+        product_code: {type: string}
+        quantity: {type: number, exclusiveMinimum: 0}
+        unit: {type: string}
+        location_code: {type: string, default: MAIN}
+        idempotency_key: {type: string, minLength: 8}
+        effective_at: {type: [string, 'null'], format: date-time}
+        batch_number: {type: [string, 'null']}
+        expiry_date: {type: [string, 'null'], format: date}
+        notes: {type: [string, 'null']}
+
+    StockIssueRequest:
+      type: object
+      required: [product_code, quantity, unit, idempotency_key]
+      properties:
+        product_code: {type: string}
+        quantity: {type: number, exclusiveMinimum: 0}
+        unit: {type: string}
+        location_code: {type: string, default: MAIN}
+        idempotency_key: {type: string, minLength: 8}
+        effective_at: {type: [string, 'null'], format: date-time}
+        notes: {type: [string, 'null']}
+        external_task_id: {type: [string, 'null']}
+        external_activity_id: {type: [string, 'null']}
+
+    StockAdjustmentRequest:
+      type: object
+      required: [product_code, verified_quantity, unit, idempotency_key, reason]
+      properties:
+        product_code: {type: string}
+        verified_quantity: {type: number, minimum: 0}
+        unit: {type: string}
+        location_code: {type: string, default: MAIN}
+        idempotency_key: {type: string, minLength: 8}
+        effective_at: {type: [string, 'null'], format: date-time}
+        reason: {type: string}
+        notes: {type: [string, 'null']}
+
+    BatchPurchaseItem:
+      type: object
+      required: [product_code, quantity, unit]
+      properties:
+        product_code: {type: string}
+        quantity: {type: number, exclusiveMinimum: 0}
+        unit: {type: string}
+        location_code: {type: string, default: MAIN}
+        effective_at: {type: [string, 'null'], format: date-time}
+        notes: {type: [string, 'null']}
+
+    BatchPurchaseRequest:
+      type: object
+      required: [idempotency_key, items]
+      properties:
+        idempotency_key: {type: string, minLength: 8}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: '#/components/schemas/BatchPurchaseItem'}
+        notes: {type: [string, 'null']}
+
+    BatchUsageItem:
+      type: object
+      required: [product_code, quantity, unit]
+      properties:
+        product_code: {type: string}
+        quantity: {type: number, exclusiveMinimum: 0}
+        unit: {type: string}
+        location_code: {type: string, default: MAIN}
+        notes: {type: [string, 'null']}
+
+    BatchUsageRequest:
+      type: object
+      required: [idempotency_key, items]
+      properties:
+        idempotency_key: {type: string, minLength: 8}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: '#/components/schemas/BatchUsageItem'}
+        effective_at: {type: [string, 'null'], format: date-time}
+        crop: {type: [string, 'null']}
+        plot: {type: [string, 'null']}
+        method: {type: [string, 'null']}
+        water_volume: {type: [number, 'null'], minimum: 0}
+        water_unit: {type: [string, 'null']}
+        dose: {type: [string, 'null']}
+        external_task_id: {type: [string, 'null']}
+        external_activity_id: {type: [string, 'null']}
+        notes: {type: [string, 'null']}
+
+    CreateProductRequest:
+      type: object
+      required: [product_name, category, base_unit]
+      properties:
+        product_name: {type: string}
+        category: {type: string}
+        base_unit: {type: string}
+        brand: {type: [string, 'null']}
+        content: {type: [string, 'null']}
+        primary_function: {type: [string, 'null']}
+        notes: {type: [string, 'null']}
+        active: {type: boolean, default: true}
