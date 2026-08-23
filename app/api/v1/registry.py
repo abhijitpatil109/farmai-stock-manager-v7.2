@@ -222,12 +222,10 @@ def _show_marathi_product_name(product_name: str, product_name_mr: str | None) -
     response_model=RegistryEnvelopeV72,
     summary="Get FarmAI Stock Registry V7.2",
     description=(
-        "Returns the authoritative presentation-ready FarmAI Stock Registry V7.2 "
-        "using live PostgreSQL inventory. Use this endpoint for today's stock, "
-        "current stock, inventory, register, registry and FULL REGISTRY requests. "
-        "The response contains all 8 frozen categories and backend-supplied "
-        "bilingual display metadata. Do not substitute getCurrentInventory for "
-        "FULL REGISTRY rendering."
+        "Returns the live FarmAI Stock Registry V7.2 with all 8 frozen categories "
+        "and bilingual metadata. Use for today's/current stock, inventory, register, "
+        "registry, FULL REGISTRY and CATEGORY MODE. Do not substitute "
+        "getCurrentInventory."
     ),
 )
 def get_registry_v72():
