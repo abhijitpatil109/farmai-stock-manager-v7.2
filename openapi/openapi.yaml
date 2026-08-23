@@ -20,11 +20,7 @@ paths:
     get:
       operationId: getRegistryV72
       summary: Get FarmAI Stock Registry V7.2
-      description: >
-        Returns the live FarmAI Stock Registry V7.2 with all 8 frozen categories
-        and bilingual metadata. Use for today's/current stock, inventory, register,
-        registry, FULL REGISTRY and CATEGORY MODE. Do not substitute
-        getCurrentInventory.
+      description: Returns the authoritative FarmAI V7.2 stock registry. Use for current stock, full registry, category stock, and product stock queries. Response follows the canonical V7.2 presentation contract and includes stock, status, usage, timing, dose, content, and FarmAI advice fields.
       security: [{FarmAIApiKey: []}]
       responses:
         '200':
