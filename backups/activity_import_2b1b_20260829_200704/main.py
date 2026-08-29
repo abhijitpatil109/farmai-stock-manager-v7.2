@@ -13,7 +13,6 @@ from .api.v1.transactions import router as transactions_router
 from .api.v1.batch_purchases import router as batch_purchases_router
 from .api.v1.batch_usage import router as batch_usage_router
 from .api.v1.create_product import router as create_product_router
-from .api.v1.activity_import import router as activity_import_router
 from .db import connection
 from .models import (
     AvailabilityRequest,
@@ -49,7 +48,6 @@ app.include_router(batch_purchases_router)
 app.include_router(batch_usage_router)
 app.include_router(create_product_router)
 
-app.include_router(activity_import_router)
 def d(value):
     return Decimal(str(value or 0))
 
