@@ -1,17 +1,12 @@
 """
-FarmAI Activity Register V1 - Domain Foundation API.
+FarmAI Activity Register - Phase 2A API router.
 
-Phase 1 scope:
-- Reference catalog
-- Farm (शेत)
-- Plot (प्लॉट)
-- Crop Cycle (पीक चक्र)
-
-Activity recording endpoints are intentionally deferred to the next phase.
+Stock Manager remains untouched. No endpoint in this file deducts inventory.
 """
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Literal
 from uuid import UUID
 
@@ -21,19 +16,16 @@ from fastapi.responses import JSONResponse
 
 from ...core.responses import error_response, success_response
 from ...core.security import require_api_key
-from ...schemas.activity_register import CropCycleCreate, FarmCreate, PlotCreate
+from ...schemas.activity_register import (
+    ActivityCreate, ActivityStatusCommand, CropCycleCreate, ExecutionCreate,
+    FarmCreate, ObservationCreate, PlotCreate,
+)
 from ...services.activity_register import (
-    ActivityRegisterConflict,
-    ActivityRegisterNotFound,
-    ActivityRegisterValidation,
-    create_crop_cycle,
-    create_farm,
-    create_plot,
-    get_crop_cycle,
-    get_reference_data,
-    list_crop_cycles,
-    list_farms,
-    list_plots,
+    ActivityRegisterConflict, ActivityRegisterNotFound, ActivityRegisterValidation,
+    add_execution, change_activity_status, create_activity, create_crop_cycle,
+    create_farm, create_observation, create_plot, crop_timeline, get_activity,
+    get_crop_cycle, get_reference_data, list_activities, list_crop_cycles,
+    list_farms, list_plots,
 )
 
 
@@ -44,113 +36,148 @@ router = APIRouter(
 )
 
 
-def _error(status_code: int, code: str, message: str):
+def _error(status_code, code, message):
     return JSONResponse(
         status_code=status_code,
-        content=jsonable_encoder(error_response(code=code, message=message)),
+        content=jsonable_encoder(error_response(code=code,message=message)),
     )
 
 
-def _handle_domain_error(exc: Exception):
+def _domain_error(exc):
     if isinstance(exc, ActivityRegisterNotFound):
-        return _error(404, "ACTIVITY_REGISTER_NOT_FOUND", str(exc))
+        return _error(404,"ACTIVITY_REGISTER_NOT_FOUND",str(exc))
     if isinstance(exc, ActivityRegisterConflict):
-        return _error(409, "ACTIVITY_REGISTER_CONFLICT", str(exc))
+        return _error(409,"ACTIVITY_REGISTER_CONFLICT",str(exc))
     if isinstance(exc, ActivityRegisterValidation):
-        return _error(422, "ACTIVITY_REGISTER_VALIDATION", str(exc))
+        return _error(422,"ACTIVITY_REGISTER_VALIDATION",str(exc))
     raise exc
 
 
-@router.get(
-    "/activity-register/reference-data",
-    operation_id="getActivityRegisterReferenceData",
-    summary="Get Activity Register reference data (अॅक्टिव्हिटी रजिस्टर संदर्भ डेटा)",
-)
+@router.get("/activity-register/reference-data", operation_id="getActivityRegisterReferenceData")
 def reference_data():
     return success_response(get_reference_data())
 
 
-@router.post(
-    "/farms",
-    operation_id="createFarm",
-    summary="Create Farm (शेत तयार करा)",
-)
+# Existing agricultural-context endpoints
+@router.post("/farms", operation_id="createFarm")
 def post_farm(req: FarmCreate):
-    try:
-        return success_response(create_farm(req))
-    except (ActivityRegisterNotFound, ActivityRegisterConflict, ActivityRegisterValidation) as exc:
-        return _handle_domain_error(exc)
+    try: return success_response(create_farm(req))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
 
+@router.get("/farms", operation_id="listFarms")
+def get_farms(active_only: bool=True):
+    return success_response(list_farms(active_only))
 
-@router.get(
-    "/farms",
-    operation_id="listFarms",
-    summary="List Farms (शेतांची यादी)",
-)
-def get_farms(
-    active_only: bool = Query(default=True),
-):
-    return success_response(list_farms(active_only=active_only))
-
-
-@router.post(
-    "/plots",
-    operation_id="createPlot",
-    summary="Create Plot (प्लॉट तयार करा)",
-)
+@router.post("/plots", operation_id="createPlot")
 def post_plot(req: PlotCreate):
-    try:
-        return success_response(create_plot(req))
-    except (ActivityRegisterNotFound, ActivityRegisterConflict, ActivityRegisterValidation) as exc:
-        return _handle_domain_error(exc)
+    try: return success_response(create_plot(req))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
 
+@router.get("/plots", operation_id="listPlots")
+def get_plots(farm_id: UUID, active_only: bool=True):
+    return success_response(list_plots(farm_id,active_only))
 
-@router.get(
-    "/plots",
-    operation_id="listPlots",
-    summary="List Plots (प्लॉटची यादी)",
-)
-def get_plots(
-    farm_id: UUID = Query(...),
-    active_only: bool = Query(default=True),
+@router.post("/crop-cycles", operation_id="createCropCycle")
+def post_cycle(req: CropCycleCreate):
+    try: return success_response(create_crop_cycle(req))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
+
+@router.get("/crop-cycles", operation_id="listCropCycles")
+def get_cycles(
+    farm_id: UUID|None=None, plot_id: UUID|None=None,
+    status: Literal["PLANNED","ACTIVE","HARVESTED","CANCELLED","ARCHIVED"]|None=None
 ):
-    return success_response(list_plots(farm_id=farm_id, active_only=active_only))
+    return success_response(list_crop_cycles(farm_id,plot_id,status))
+
+@router.get("/crop-cycles/{crop_cycle_id}", operation_id="getCropCycle")
+def get_cycle(crop_cycle_id: UUID):
+    try: return success_response(get_crop_cycle(crop_cycle_id))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
 
 
+# Core Activity Recording
 @router.post(
-    "/crop-cycles",
-    operation_id="createCropCycle",
-    summary="Create Crop Cycle (पीक चक्र तयार करा)",
+    "/activities",
+    operation_id="createActivity",
+    summary="Create Activity (क्रियाकलाप तयार करा)",
 )
-def post_crop_cycle(req: CropCycleCreate):
-    try:
-        return success_response(create_crop_cycle(req))
-    except (ActivityRegisterNotFound, ActivityRegisterConflict, ActivityRegisterValidation) as exc:
-        return _handle_domain_error(exc)
+def post_activity(req: ActivityCreate):
+    try: return success_response(create_activity(req))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
 
 
 @router.get(
-    "/crop-cycles",
-    operation_id="listCropCycles",
-    summary="List Crop Cycles (पीक चक्रांची यादी)",
+    "/activities",
+    operation_id="listActivities",
+    summary="List Activities (क्रियाकलापांची यादी)",
 )
-def get_crop_cycles(
-    farm_id: UUID | None = Query(default=None),
-    plot_id: UUID | None = Query(default=None),
-    status: Literal["PLANNED", "ACTIVE", "HARVESTED", "CANCELLED", "ARCHIVED"] | None = Query(default=None),
+def get_activities(
+    crop_cycle_id: UUID|None=None,
+    status: str|None=None,
+    activity_type_code: str|None=None,
+    date_from: date|None=None,
+    date_to: date|None=None,
 ):
     return success_response(
-        list_crop_cycles(farm_id=farm_id, plot_id=plot_id, status=status)
+        list_activities(crop_cycle_id,status,activity_type_code,date_from,date_to)
     )
 
 
 @router.get(
-    "/crop-cycles/{crop_cycle_id}",
-    operation_id="getCropCycle",
-    summary="Get Crop Cycle (पीक चक्र पहा)",
+    "/activities/{activity_id}",
+    operation_id="getActivity",
+    summary="Get Activity (क्रियाकलाप पहा)",
 )
-def get_crop_cycle_by_id(crop_cycle_id: UUID):
-    try:
-        return success_response(get_crop_cycle(crop_cycle_id))
-    except (ActivityRegisterNotFound, ActivityRegisterConflict, ActivityRegisterValidation) as exc:
-        return _handle_domain_error(exc)
+def get_activity_api(activity_id: UUID):
+    try: return success_response(get_activity(activity_id))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
+
+
+@router.post(
+    "/activities/{activity_id}/executions",
+    operation_id="recordActivityExecution",
+    summary="Record Activity Execution (क्रियाकलाप अंमलबजावणी नोंदवा)",
+)
+def post_execution(activity_id: UUID, req: ExecutionCreate):
+    try: return success_response(add_execution(activity_id,req))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
+
+
+@router.post(
+    "/activities/{activity_id}/skip",
+    operation_id="skipActivity",
+    summary="Skip Activity (क्रियाकलाप वगळा)",
+)
+def skip_activity(activity_id: UUID, req: ActivityStatusCommand):
+    try: return success_response(change_activity_status(activity_id,"SKIPPED",req))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
+
+
+@router.post(
+    "/activities/{activity_id}/cancel",
+    operation_id="cancelActivity",
+    summary="Cancel Activity (क्रियाकलाप रद्द करा)",
+)
+def cancel_activity(activity_id: UUID, req: ActivityStatusCommand):
+    try: return success_response(change_activity_status(activity_id,"CANCELLED",req))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
+
+
+@router.post(
+    "/crop-cycles/{crop_cycle_id}/observations",
+    operation_id="recordCropObservation",
+    summary="Record Crop Observation (पीक निरीक्षण नोंदवा)",
+)
+def post_observation(crop_cycle_id: UUID, req: ObservationCreate):
+    try: return success_response(create_observation(crop_cycle_id,req))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
+
+
+@router.get(
+    "/crop-cycles/{crop_cycle_id}/timeline",
+    operation_id="getCropCycleTimeline",
+    summary="View Crop Timeline (पीक कालरेषा पहा)",
+)
+def timeline(crop_cycle_id: UUID, date_from: date|None=None, date_to: date|None=None):
+    try: return success_response(crop_timeline(crop_cycle_id,date_from,date_to))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
