@@ -11,13 +11,13 @@ from ...core.responses import error_response, success_response
 from ...core.security import require_api_key
 from ...schemas.activity_import import (
     ContextResolution, ImportBatchCreate, ImportRecordCreate,
-    ProductResolution, ReviewCommand,
+    ProductResolution, ReviewCommand, SourceConflictResolution,
 )
 from ...services.activity_import import (
     ImportConflict, ImportNotFound, ImportValidation,
     approve_record, create_batch, get_batch_preview, get_record, list_batches,
     promote_record, reconcile_batch, reconcile_record, reject_record,
-    resolve_product, set_context, stage_record,
+    resolve_product, resolve_source_conflict, set_context, stage_record,
 )
 
 router = APIRouter(
@@ -78,6 +78,13 @@ def context_api(record_id: UUID, req: ContextResolution):
 @router.post("/records/{record_id}/product", operation_id="resolveHistoricalProduct")
 def product_api(record_id: UUID, req: ProductResolution):
     try: return success_response(resolve_product(record_id,req))
+    except (ImportNotFound,ImportConflict,ImportValidation) as e: return _err(e)
+
+
+@router.post("/records/{record_id}/source-conflict/resolve", operation_id="resolveHistoricalSourceConflict",
+             summary="Resolve Historical Source Conflict (ऐतिहासिक स्रोत-विरोध सोडवा)")
+def source_conflict_api(record_id: UUID, req: SourceConflictResolution):
+    try: return success_response(resolve_source_conflict(record_id,req))
     except (ImportNotFound,ImportConflict,ImportValidation) as e: return _err(e)
 
 @router.post("/records/{record_id}/approve", operation_id="approveHistoricalActivity")

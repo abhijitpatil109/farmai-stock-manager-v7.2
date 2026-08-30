@@ -64,10 +64,118 @@ def _close_auto_issues(conn, record_id):
                'MISSING_ACTIVITY_DATE','INVALID_DAP_DATE','INVALID_ACTIVITY_TYPE',
                'INVALID_APPLICATION_METHOD','MISSING_PRODUCT','AMBIGUOUS_PRODUCT',
                'INVALID_DOSE_UNIT','INVALID_TOTAL_UNIT','INVALID_DOSE_BASIS',
-               'POSSIBLE_DUPLICATE'
+               'POSSIBLE_DUPLICATE','SOURCE_CONFLICT'
              )""",
         (record_id,),
     )
+
+
+def _raw_payload_as_dict(raw_payload):
+    """Return raw_payload as a dict without inventing or normalizing evidence."""
+    if raw_payload is None:
+        return {}
+    if isinstance(raw_payload, dict):
+        return raw_payload
+    if isinstance(raw_payload, str):
+        try:
+            value=json.loads(raw_payload)
+            return value if isinstance(value,dict) else {}
+        except Exception:
+            return {}
+    try:
+        return dict(raw_payload)
+    except Exception:
+        return {}
+
+
+def _source_conflict_evidence(raw_payload):
+    """
+    Detect explicit source-evidence conflicts already retained by staging.
+
+    Deliberately conservative:
+    - any non-empty key beginning with `conflicting_`
+    - explicit `source_conflict` / `source_conflicts`
+    - explicit `conflict` / `conflicts`
+
+    This does NOT infer a conflict from vague notes or differing confidence.
+    """
+    payload=_raw_payload_as_dict(raw_payload)
+    hits=[]
+
+    def walk(value,path=""):
+        if isinstance(value,dict):
+            for key,val in value.items():
+                p=f"{path}.{key}" if path else str(key)
+                key_l=str(key).lower()
+                explicit = (
+                    key_l.startswith("conflicting_")
+                    or key_l in ("source_conflict","source_conflicts","conflict","conflicts")
+                )
+                if explicit and val not in (None,"",[],{}):
+                    hits.append({"path":p,"value":val})
+                walk(val,p)
+        elif isinstance(value,list):
+            for i,val in enumerate(value):
+                walk(val,f"{path}[{i}]")
+    walk(payload)
+    return hits
+
+
+def _has_accepted_source_conflict(conn, record_id):
+    """A manually accepted SOURCE_CONFLICT remains accepted across reconciliation runs."""
+    row=conn.execute(
+        """SELECT id FROM public.activity_import_issues
+           WHERE import_record_id=%s
+             AND issue_code='SOURCE_CONFLICT'
+             AND status='ACCEPTED'
+           ORDER BY resolved_at DESC NULLS LAST, created_at DESC
+           LIMIT 1""",
+        (record_id,),
+    ).fetchone()
+    return bool(row)
+
+
+def resolve_source_conflict(record_id, req):
+    """
+    Explicit human resolution gate for SOURCE_CONFLICT only.
+
+    It does not edit raw evidence. It records why the normalized value is accepted.
+    Reconciliation will continue to retain the raw conflicting evidence while
+    respecting this explicit accepted resolution.
+    """
+    with connection() as conn:
+        try:
+            r=_record(conn,record_id)
+            if r["status"] in ("APPROVED","IMPORTED","REJECTED"):
+                raise ImportConflict("Reviewed/imported record cannot be edited.")
+            issue=conn.execute(
+                """SELECT * FROM public.activity_import_issues
+                   WHERE id=%s AND import_record_id=%s
+                     AND issue_code='SOURCE_CONFLICT' AND status='OPEN'""",
+                (req.issue_id,record_id),
+            ).fetchone()
+            if not issue:
+                raise ImportNotFound("Open SOURCE_CONFLICT issue not found for this record.")
+
+            conn.execute(
+                """UPDATE public.activity_import_issues
+                   SET status='ACCEPTED',
+                       resolution_en=%s,resolution_mr=%s,
+                       resolved_at=now(),resolved_by=%s
+                   WHERE id=%s""",
+                (req.resolution_en,req.resolution_mr,req.reviewed_by,req.issue_id),
+            )
+            conn.execute(
+                """UPDATE public.activity_import_records
+                   SET status='STAGED',reconciliation_status='PENDING',
+                       reviewed_at=now(),reviewed_by=%s,updated_at=now()
+                   WHERE id=%s""",
+                (req.reviewed_by,record_id),
+            )
+            conn.commit()
+            return reconcile_record(record_id)
+        except Exception:
+            conn.rollback(); raise
 
 
 def create_batch(req):
@@ -249,6 +357,19 @@ def reconcile_record(record_id):
             if r["status"]=="IMPORTED": return get_record(record_id)
             _close_auto_issues(conn,record_id)
             blocking=False
+
+            # Explicit source-evidence conflict guard.
+            # Raw staging evidence is never silently overridden by a populated normalized field.
+            source_conflicts=_source_conflict_evidence(r["raw_payload"])
+            if source_conflicts and not _has_accepted_source_conflict(conn,record_id):
+                _issue(
+                    conn,batch_id=r["batch_id"],record_id=record_id,
+                    code="SOURCE_CONFLICT",severity="BLOCKING",field_name="raw_payload",
+                    message_en="Conflicting historical source evidence requires explicit review before approval.",
+                    message_mr="विरोधी ऐतिहासिक स्रोत पुराव्यास मंजुरीपूर्वी स्पष्ट मानवी पडताळणी आवश्यक आहे.",
+                    detected=json.dumps(source_conflicts,ensure_ascii=False,default=str),
+                )
+                blocking=True
 
             # Context
             if not r["farm_id"] or not conn.execute("SELECT 1 FROM public.farms WHERE id=%s AND active=TRUE",(r["farm_id"],)).fetchone():
