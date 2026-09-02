@@ -1,6 +1,8 @@
+
 from __future__ import annotations
 
 from uuid import UUID
+
 from fastapi import APIRouter, Depends
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
@@ -8,17 +10,14 @@ from fastapi.responses import JSONResponse
 from ...core.responses import error_response, success_response
 from ...core.security import require_api_key
 from ...schemas.activity_import import (
-    ContextResolution, DuplicateResolution, ImportBatchCreate, ImportRecordCreate,
-    ProductResolution, PurposeResolution, ReviewCommand, SourceConflictResolution,
+    ContextResolution, ImportBatchCreate, ImportRecordCreate,
+    ProductResolution, ReviewCommand, SourceConflictResolution,
 )
 from ...services.activity_import import (
     ImportConflict, ImportNotFound, ImportValidation,
-    create_batch, get_batch_preview, get_record, list_batches, reject_record,
+    approve_record, create_batch, get_batch_preview, get_record, list_batches,
+    promote_record, reconcile_batch, reconcile_record, reject_record,
     resolve_product, resolve_source_conflict, set_context, stage_record,
-)
-from ...services.activity_import_hardening import (
-    approve_record, promote_record, reconcile_batch, reconcile_record,
-    resolve_duplicate, set_purposes,
 )
 
 router = APIRouter(
@@ -28,10 +27,13 @@ router = APIRouter(
 )
 
 def _err(exc):
-    if isinstance(exc, ImportNotFound): code, status = "IMPORT_NOT_FOUND", 404
-    elif isinstance(exc, ImportConflict): code, status = "IMPORT_CONFLICT", 409
-    else: code, status = "IMPORT_VALIDATION", 422
-    return JSONResponse(status_code=status, content=jsonable_encoder(error_response(code=code,message=str(exc))))
+    if isinstance(exc,ImportNotFound): code,status="IMPORT_NOT_FOUND",404
+    elif isinstance(exc,ImportConflict): code,status="IMPORT_CONFLICT",409
+    else: code,status="IMPORT_VALIDATION",422
+    return JSONResponse(
+        status_code=status,
+        content=jsonable_encoder(error_response(code=code,message=str(exc))),
+    )
 
 @router.post("/batches", operation_id="createActivityImportBatch",
              summary="Create Historical Import Batch (ऐतिहासिक आयात बॅच तयार करा)")
@@ -78,25 +80,11 @@ def product_api(record_id: UUID, req: ProductResolution):
     try: return success_response(resolve_product(record_id,req))
     except (ImportNotFound,ImportConflict,ImportValidation) as e: return _err(e)
 
-@router.post("/records/{record_id}/source-conflict/resolve",
-             operation_id="resolveHistoricalSourceConflict",
+
+@router.post("/records/{record_id}/source-conflict/resolve", operation_id="resolveHistoricalSourceConflict",
              summary="Resolve Historical Source Conflict (ऐतिहासिक स्रोत-विरोध सोडवा)")
 def source_conflict_api(record_id: UUID, req: SourceConflictResolution):
     try: return success_response(resolve_source_conflict(record_id,req))
-    except (ImportNotFound,ImportConflict,ImportValidation) as e: return _err(e)
-
-@router.put("/records/{record_id}/purposes",
-            operation_id="setHistoricalActivityPurposes",
-            summary="Set Historical Activity Purposes (ऐतिहासिक क्रियाकलाप उद्देश निश्चित करा)")
-def purposes_api(record_id: UUID, req: PurposeResolution):
-    try: return success_response(set_purposes(record_id,req))
-    except (ImportNotFound,ImportConflict,ImportValidation) as e: return _err(e)
-
-@router.post("/records/{record_id}/duplicate/resolve",
-             operation_id="resolveHistoricalDuplicate",
-             summary="Resolve Possible Historical Duplicate (संभाव्य ऐतिहासिक डुप्लिकेट सोडवा)")
-def duplicate_api(record_id: UUID, req: DuplicateResolution):
-    try: return success_response(resolve_duplicate(record_id,req))
     except (ImportNotFound,ImportConflict,ImportValidation) as e: return _err(e)
 
 @router.post("/records/{record_id}/approve", operation_id="approveHistoricalActivity")
