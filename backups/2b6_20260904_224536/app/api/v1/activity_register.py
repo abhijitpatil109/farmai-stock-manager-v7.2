@@ -20,7 +20,6 @@ from ...schemas.activity_register import (
     ActivityCreate, ActivityStatusCommand, CropCycleCreate, ExecutionCreate,
     FarmCreate, ObservationCreate, PlotCreate,
 )
-from ...services.activity_history import activity_history_detail, crop_history
 from ...services.activity_register import (
     ActivityRegisterConflict, ActivityRegisterNotFound, ActivityRegisterValidation,
     add_execution, change_activity_status, create_activity, create_crop_cycle,
@@ -181,24 +180,4 @@ def post_observation(crop_cycle_id: UUID, req: ObservationCreate):
 )
 def timeline(crop_cycle_id: UUID, date_from: date|None=None, date_to: date|None=None):
     try: return success_response(crop_timeline(crop_cycle_id,date_from,date_to))
-    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
-
-
-@router.get(
-    "/crop-cycles/{crop_cycle_id}/history",
-    operation_id="getCropCycleAuthoritativeHistory",
-    summary="View Authoritative Crop History (अधिकृत पीक इतिहास पहा)",
-)
-def authoritative_crop_history(crop_cycle_id: UUID):
-    try: return success_response(crop_history(crop_cycle_id))
-    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
-
-
-@router.get(
-    "/activities/{activity_id}/history",
-    operation_id="getActivityAuthoritativeHistory",
-    summary="View Authoritative Activity History (अधिकृत क्रियाकलाप इतिहास पहा)",
-)
-def authoritative_activity_history(activity_id: UUID):
-    try: return success_response(activity_history_detail(activity_id))
     except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
