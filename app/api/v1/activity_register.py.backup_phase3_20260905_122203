@@ -202,39 +202,3 @@ def authoritative_crop_history(crop_cycle_id: UUID):
 def authoritative_activity_history(activity_id: UUID):
     try: return success_response(activity_history_detail(activity_id))
     except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
-
-# ---------------------------------------------------------------------------
-# Phase 3 Activity Planner Operational MVP
-# ---------------------------------------------------------------------------
-from ...schemas.activity_planner import ActivityPlanUpdate, ScheduleCommand, StartCommand
-from ...services.activity_planner import planner_board, update_plan, schedule_activity, start_activity, plan_vs_actual
-
-@router.get("/activity-planner/board", operation_id="getActivityPlannerBoard",
-            summary="Activity Planner Board (क्रियाकलाप नियोजक)")
-def activity_planner_board(farm_id: UUID|None=None, crop_cycle_id: UUID|None=None,
-                           date_from: date|None=None, date_to: date|None=None):
-    return success_response(planner_board(farm_id,crop_cycle_id,date_from,date_to))
-
-@router.put("/activities/{activity_id}/plan", operation_id="updateActivityPlan",
-            summary="Update Activity Plan (क्रियाकलाप योजना बदला)")
-def update_activity_plan_api(activity_id: UUID, req: ActivityPlanUpdate):
-    try: return success_response(update_plan(activity_id,req))
-    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
-
-@router.post("/activities/{activity_id}/schedule", operation_id="scheduleActivity",
-             summary="Schedule / Reschedule Activity (क्रियाकलाप वेळापत्रक)")
-def schedule_activity_api(activity_id: UUID, req: ScheduleCommand):
-    try: return success_response(schedule_activity(activity_id,req))
-    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
-
-@router.post("/activities/{activity_id}/start", operation_id="startActivity",
-             summary="Start Activity (क्रियाकलाप सुरू करा)")
-def start_activity_api(activity_id: UUID, req: StartCommand):
-    try: return success_response(start_activity(activity_id,req))
-    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
-
-@router.get("/activities/{activity_id}/plan-vs-actual", operation_id="getActivityPlanVsActual",
-            summary="Plan vs Actual (नियोजित विरुद्ध प्रत्यक्ष)")
-def plan_vs_actual_api(activity_id: UUID):
-    try: return success_response(plan_vs_actual(activity_id))
-    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
