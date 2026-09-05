@@ -258,3 +258,19 @@ def phase4_sync(execution_id, req: StockSyncRequest):
 @router.post("/activity-executions/{execution_id}/stock-reversal", operation_id="reverseExecutionStock")
 def phase4_reverse(execution_id, req: StockReverseRequest):
     return success_response(reverse_execution_stock(execution_id, req), meta={"source":"activity-register+stock-manager"})
+
+# ---------------------------------------------------------------------------
+# Phase 5 Farmer Experience
+# ---------------------------------------------------------------------------
+from ...services.activity_farmer_experience import farmer_dashboard, crop_activity_timeline
+
+@router.get("/activity-register/dashboard", operation_id="getActivityRegisterFarmerDashboard", summary="Farm Activity Dashboard (शेत क्रियाकलाप डॅशबोर्ड)")
+def phase5_farmer_dashboard(farm_id: UUID|None=None, crop_cycle_id: UUID|None=None, date_from: date|None=None, date_to: date|None=None):
+    try: return success_response(farmer_dashboard(farm_id,crop_cycle_id,date_from,date_to))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
+
+@router.get("/crop-cycles/{crop_cycle_id}/activity-timeline", operation_id="getFarmerCropActivityTimeline", summary="Crop Activity Timeline (पीक क्रियाकलाप कालरेषा)")
+def phase5_crop_timeline(crop_cycle_id: UUID, limit: int=Query(default=200,ge=1,le=500)):
+    try: return success_response(crop_activity_timeline(crop_cycle_id,limit))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
+
