@@ -102,7 +102,7 @@ def sync_execution(execution_id,req):
         if not ex: raise ActivityRegisterNotFound("Execution not found.")
         if ex["status"] not in ("PARTIALLY_COMPLETED","COMPLETED"): raise ActivityRegisterValidation("Execution must be PARTIALLY_COMPLETED/COMPLETED.")
         loc=_loc(c,req.location_code); out=[]
-        rows=c.execute("SELECT aei.*,ai.stock_reservation_id,ai.id planned_input_id FROM public.activity_execution_inputs aei LEFT JOIN public.activity_inputs ai ON ai.id=aei.activity_input_id WHERE aei.execution_id=%s ORDER BY aei.created_at FOR UPDATE OF aei",(execution_id,)).fetchall()
+        rows=c.execute("SELECT aei.*,ai.stock_reservation_id,ai.id planned_input_id FROM public.activity_execution_inputs aei LEFT JOIN public.activity_inputs ai ON ai.id=aei.activity_input_id WHERE aei.execution_id=%s ORDER BY aei.created_at FOR UPDATE",(execution_id,)).fetchall()
         for x in rows:
             p=_prod(c,x["product_id"])
             if x["stock_transaction_id"]: out.append({"execution_input_id":x["id"],"product_code":p["product_code"],"transaction_id":x["stock_transaction_id"],"duplicate":True}); continue
