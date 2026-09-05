@@ -15,6 +15,7 @@ from .api.v1.batch_usage import router as batch_usage_router
 from .api.v1.create_product import router as create_product_router
 from .api.v1.activity_import import router as activity_import_router
 from .api.v1.activity_intelligence import router as activity_intelligence_router
+from .api.v1.activity_proactive_planner import router as activity_proactive_planner_router
 from .db import connection
 from .models import (
     AvailabilityRequest,
@@ -52,6 +53,7 @@ app.include_router(create_product_router)
 
 app.include_router(activity_import_router)
 app.include_router(activity_intelligence_router)
+app.include_router(activity_proactive_planner_router)
 def d(value):
     return Decimal(str(value or 0))
 
