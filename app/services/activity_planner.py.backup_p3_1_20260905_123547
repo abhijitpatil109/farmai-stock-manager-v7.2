@@ -139,7 +139,7 @@ def update_plan(activity_id, req):
                          item.planned_total_unit_code.upper() if item.planned_total_unit_code else None,
                          item.notes_en,item.notes_mr))
             new=conn.execute("SELECT * FROM public.activities WHERE id=%s",(activity_id,)).fetchone()
-            _audit(conn,entity_type="ACTIVITY",entity_id=activity_id,action="UPDATE",old_data=old,new_data=dict(new),changed_by=updated_by)
+            _audit(conn,entity_type="ACTIVITY",entity_id=activity_id,action="PLAN_UPDATE",old_data=old,new_data=dict(new),changed_by=updated_by)
             conn.commit()
             return get_activity(activity_id)
         except Exception:
@@ -156,7 +156,7 @@ def schedule_activity(activity_id, req):
             old={"status":a["status"],"scheduled_date":a["scheduled_date"],"planned_dap":a["planned_dap"]}
             conn.execute("""UPDATE public.activities SET status='SCHEDULED',scheduled_date=%s,planned_dap=%s,
                          updated_at=now(),updated_by=%s WHERE id=%s""",(req.scheduled_date,dap,req.changed_by,activity_id))
-            _audit(conn,entity_type="ACTIVITY",entity_id=activity_id,action="STATUS_CHANGE",old_data=old,
+            _audit(conn,entity_type="ACTIVITY",entity_id=activity_id,action="SCHEDULE",old_data=old,
                    new_data={"status":"SCHEDULED","scheduled_date":req.scheduled_date,"planned_dap":dap},
                    changed_by=req.changed_by)
             conn.commit(); return get_activity(activity_id)
