@@ -54,9 +54,6 @@ def _domain_error(exc):
     raise exc
 
 
-from ...schemas.activity_stock_integration import StockReserveRequest, StockReleaseRequest, StockSyncRequest, StockReverseRequest
-from ...services.activity_stock_integration import stock_preview, reserve_activity, release_activity, sync_execution, reverse_execution_stock
-
 @router.get("/activity-register/reference-data", operation_id="getActivityRegisterReferenceData")
 def reference_data():
     return success_response(get_reference_data())
@@ -241,20 +238,3 @@ def start_activity_api(activity_id: UUID, req: StartCommand):
 def plan_vs_actual_api(activity_id: UUID):
     try: return success_response(plan_vs_actual(activity_id))
     except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
-
-
-@router.get("/activities/{activity_id}/stock-preview", operation_id="previewActivityStock")
-def phase4_stock_preview(activity_id, location_code: str = "MAIN"):
-    return success_response(stock_preview(activity_id, location_code), meta={"source":"activity-register+stock-manager"})
-@router.post("/activities/{activity_id}/stock-reservations", operation_id="reserveActivityStock")
-def phase4_reserve(activity_id, req: StockReserveRequest):
-    return success_response(reserve_activity(activity_id, req), meta={"source":"activity-register+stock-manager"})
-@router.post("/activities/{activity_id}/stock-reservations/release", operation_id="releaseActivityStock")
-def phase4_release(activity_id, req: StockReleaseRequest):
-    return success_response(release_activity(activity_id, req), meta={"source":"activity-register+stock-manager"})
-@router.post("/activity-executions/{execution_id}/stock-sync", operation_id="syncExecutionStock")
-def phase4_sync(execution_id, req: StockSyncRequest):
-    return success_response(sync_execution(execution_id, req), meta={"source":"activity-register+stock-manager"})
-@router.post("/activity-executions/{execution_id}/stock-reversal", operation_id="reverseExecutionStock")
-def phase4_reverse(execution_id, req: StockReverseRequest):
-    return success_response(reverse_execution_stock(execution_id, req), meta={"source":"activity-register+stock-manager"})
