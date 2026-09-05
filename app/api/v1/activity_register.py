@@ -309,3 +309,23 @@ def phase52_correct(execution_id: UUID,req: FarmerCorrectionRequest):
 @router.get("/activity-executions/{execution_id}/correction-lineage",operation_id="getCorrectionLineage")
 def phase52_lineage(execution_id: UUID):
     return success_response(correction_lineage(execution_id))
+
+# ---------------------------------------------------------------------------
+# Phase 5.3 Outcomes + Searchable Operational Memory
+# ---------------------------------------------------------------------------
+from ...schemas.activity_farmer_memory import FarmerOutcomeRequest
+from ...services.activity_farmer_memory import record_farmer_outcome,search_activity_memory
+
+@router.post("/activity-register/outcomes",operation_id="recordFarmerOutcome",
+             summary="Record Activity Outcome (क्रियाकलाप परिणाम नोंदवा)")
+def phase53_outcome(req: FarmerOutcomeRequest):
+    try:return success_response(record_farmer_outcome(req))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e:return _domain_error(e)
+
+@router.get("/activity-register/search",operation_id="searchActivityMemory",
+            summary="Search Farm Activity Memory (शेत क्रियाकलाप इतिहास शोधा)")
+def phase53_search(crop_cycle_id: UUID|None=None,product_code: str|None=None,purpose_code: str|None=None,
+                   activity_type_code: str|None=None,date_from: date|None=None,date_to: date|None=None,
+                   dap_from: int|None=Query(default=None,ge=0),dap_to: int|None=Query(default=None,ge=0),
+                   limit: int=Query(default=200,ge=1,le=500)):
+    return success_response(search_activity_memory(crop_cycle_id,product_code,purpose_code,activity_type_code,date_from,date_to,dap_from,dap_to,limit))
