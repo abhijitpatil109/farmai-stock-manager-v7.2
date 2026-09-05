@@ -274,3 +274,20 @@ def phase5_crop_timeline(crop_cycle_id: UUID, limit: int=Query(default=200,ge=1,
     try: return success_response(crop_activity_timeline(crop_cycle_id,limit))
     except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e: return _domain_error(e)
 
+# ---------------------------------------------------------------------------
+# Phase 5.1 Farmer Operational Entry + Quantity Resolution
+# ---------------------------------------------------------------------------
+from ...schemas.activity_farmer_entry import FarmerActivityEntry
+from ...services.activity_farmer_entry import preview_farmer_activity, complete_farmer_activity
+
+@router.post("/activity-register/farmer-entry/preview",operation_id="previewFarmerActivity",
+             summary="Preview Farmer Activity (शेतकरी क्रियाकलाप पूर्वावलोकन)")
+def phase51_preview(req: FarmerActivityEntry):
+    try:return success_response(preview_farmer_activity(req))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e:return _domain_error(e)
+
+@router.post("/activity-register/farmer-entry/complete",operation_id="completeFarmerActivity",
+             summary="Complete Farmer Activity (शेतकरी क्रियाकलाप पूर्ण नोंद)")
+def phase51_complete(req: FarmerActivityEntry):
+    try:return success_response(complete_farmer_activity(req))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e:return _domain_error(e)
