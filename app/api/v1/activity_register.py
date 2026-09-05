@@ -291,3 +291,21 @@ def phase51_preview(req: FarmerActivityEntry):
 def phase51_complete(req: FarmerActivityEntry):
     try:return success_response(complete_farmer_activity(req))
     except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e:return _domain_error(e)
+
+# ---------------------------------------------------------------------------
+# Phase 5.2 Farmer-safe Correction / Reversal
+# ---------------------------------------------------------------------------
+from ...schemas.activity_operational_control import FarmerCorrectionRequest
+from ...services.activity_operational_control import correct_execution, correction_lineage
+
+@router.post("/activity-executions/{execution_id}/farmer-correct",operation_id="correctFarmerExecution",
+             summary="Correct Completed Execution (पूर्ण अंमलबजावणी दुरुस्त करा)")
+def phase52_correct(execution_id: UUID,req: FarmerCorrectionRequest):
+    if str(execution_id)!=req.original_execution_id:
+        return _error(422,"ACTIVITY_REGISTER_VALIDATION","execution_id does not match original_execution_id.")
+    try:return success_response(correct_execution(req))
+    except (ActivityRegisterNotFound,ActivityRegisterConflict,ActivityRegisterValidation) as e:return _domain_error(e)
+
+@router.get("/activity-executions/{execution_id}/correction-lineage",operation_id="getCorrectionLineage")
+def phase52_lineage(execution_id: UUID):
+    return success_response(correction_lineage(execution_id))
