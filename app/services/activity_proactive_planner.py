@@ -249,7 +249,10 @@ def hold_activity(activity_id,req):
             raise ActivityRegisterValidation(
               "Terminal Activity cannot be held. (पूर्ण/वगळलेला/रद्द क्रियाकलाप होल्ड करता येत नाही.)"
             )
-        if req.hold_until and req.hold_until < date.today():
+        # PostgreSQL CURRENT_DATE is the authoritative operational date.
+        # This avoids UTC/serverless runtime drift from the farm/database date.
+        db_today=conn.execute("SELECT CURRENT_DATE AS today").fetchone()["today"]
+        if req.hold_until and req.hold_until < db_today:
             raise ActivityRegisterValidation(
               "hold_until cannot be in the past. (होल्ड तारीख भूतकाळातील असू शकत नाही.)"
             )
