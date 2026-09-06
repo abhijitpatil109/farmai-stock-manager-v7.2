@@ -57,3 +57,12 @@ class AuthorityBoundaryTests(unittest.TestCase):
         self.assertIn('p["min_relative_change_pct"]',s)
 
 if __name__=="__main__":unittest.main()
+
+
+class PackagingContractTests(unittest.TestCase):
+    def test_canonical_phase9_router_exists(self):
+        self.assertTrue(Path("app/api/v1/phase9.py").is_file())
+    def test_main_uses_single_phase9_router_after_install(self):
+        main=Path("app/main.py").read_text()
+        self.assertIn("from .api.v1.phase9 import router as phase9_router",main)
+        self.assertIn("app.include_router(phase9_router)",main)
