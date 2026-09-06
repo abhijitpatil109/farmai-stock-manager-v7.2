@@ -4,7 +4,6 @@ from decimal import Decimal
 from ..db import connection
 from .activity_register import ActivityRegisterNotFound,ActivityRegisterValidation
 from .external_weather import weather_context_for_crop_cycle
-from .remote_sensing import remote_sensing_context_for_crop_cycle
 
 ENGINE_VERSION="6.0.0"
 
@@ -54,8 +53,7 @@ def build_intelligence_context(crop_cycle_id,as_of_date=None,history_days=45):
            WHERE a.crop_cycle_id=%s) ORDER BY ci.product_code""",(crop_cycle_id,)).fetchall()]
     return {"engine_version":ENGINE_VERSION,"as_of_date":as_of_date,"dap":dap,"history_window":{"from":start,"to":as_of_date},
       "crop_cycle":_d(cycle),"recent_activities":acts,"observations":observations,"relevant_stock":inventory,
-      "external_weather":weather_context_for_crop_cycle(crop_cycle_id),
-      "remote_sensing":remote_sensing_context_for_crop_cycle(crop_cycle_id)}
+      "external_weather":weather_context_for_crop_cycle(crop_cycle_id)}
 
 def _recommendations(ctx):
     acts=ctx["recent_activities"]; obs=ctx["observations"]; rec=[]
