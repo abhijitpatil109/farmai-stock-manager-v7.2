@@ -1,0 +1,17 @@
+{
+  "release": "OI-1.0.0",
+  "timestamp": "2026-09-06T12:28:17.040632+00:00",
+  "base_url": "https://farmai-stock-manager-v7-2.vercel.app",
+  "checks": {
+    "openapi_surface": true,
+    "health_ready": true,
+    "guardrail_exposed": true,
+    "context_live": true,
+    "context_has_cycles": true,
+    "context_has_intelligence": true,
+    "stock_live": true,
+    "unauthorized_write_rejected": true
+  },
+  "all_assertions_passed": true,
+  "note": "Production acceptance is intentionally non-mutating. Authoritative farmer-entry write behavior is inherited from the already accepted Activity/Stock path; OI-1 adds an explicit authorization envelope and validates rejection without mutation."
+}

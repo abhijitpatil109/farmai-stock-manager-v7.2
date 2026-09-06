@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "release": "OI-1.1.0",
+  "backup": "/Users/dishapatil/Documents/GitHub/farmai-stock-manager-v7.2/backups/oi1_1_20260906_185321",
+  "installed": [
+    "app/services/operational_decision_context.py",
+    "app/api/v1/operational_integration.py"
+  ],
+  "sha256": {
+    "app/services/operational_decision_context.py": "c47e9bcf8582bf89b8fe7a018ca62b4fd4ffe13efa5e11bd4f58bd9fd0e2dcc0",
+    "app/api/v1/operational_integration.py": "c6e656fe0ec8c17495d1423d38091a6012564eaff60d2330c84a3936dc8f43e5"
+  }
+}
