@@ -24,6 +24,9 @@ ENSEMBLE_MODELS={
 HOURLY="temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,wind_gusts_10m,weather_code"
 ENSEMBLE_HOURLY="precipitation"
 DEFAULT_EVENT_THRESHOLD_MM=0.1
+# Backward-compatible Phase 8.1 symbols; canonical v8.4 names are below.
+RAIN_THRESHOLD_MM=DEFAULT_EVENT_THRESHOLD_MM
+MODEL_ENDPOINTS=DETERMINISTIC_ENDPOINTS
 LOCAL_RELIABILITY_MIN_SAMPLES=30
 
 def _json_default(v):
