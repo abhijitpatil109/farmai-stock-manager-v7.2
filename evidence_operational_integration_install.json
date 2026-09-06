@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "repo": "/Users/dishapatil/Documents/GitHub/farmai-stock-manager-v7.2",
+  "backup": "/Users/dishapatil/Documents/GitHub/farmai-stock-manager-v7.2/backups/operational_integration_20260906_175404",
+  "installed": [
+    "app/schemas/operational_integration.py",
+    "app/services/operational_integration.py",
+    "app/api/v1/operational_integration.py"
+  ],
+  "main_sha256": "5fb4ca83439f17d345071c5b5a93feae03e363e9a04a850449a53e62f14b9532",
+  "router_import_count": 1,
+  "router_include_count": 1
+}

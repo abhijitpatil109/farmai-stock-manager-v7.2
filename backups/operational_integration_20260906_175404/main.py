@@ -18,7 +18,6 @@ from .api.v1.activity_intelligence import router as activity_intelligence_router
 from .api.v1.activity_proactive_planner import router as activity_proactive_planner_router
 from .api.v1.weather_intelligence import router as weather_intelligence_router
 from .api.v1.phase9 import router as phase9_router
-from .api.v1.operational_integration import router as operational_integration_router
 from .db import connection
 from .models import (
     AvailabilityRequest,
@@ -59,7 +58,6 @@ app.include_router(activity_intelligence_router)
 app.include_router(activity_proactive_planner_router)
 app.include_router(weather_intelligence_router)
 app.include_router(phase9_router)
-app.include_router(operational_integration_router)
 def d(value):
     return Decimal(str(value or 0))
 
