@@ -1,0 +1,64 @@
+{
+  "phase": 9,
+  "status": "PASS",
+  "scene_count": 6,
+  "processed": {
+    "duplicate": false,
+    "observation_id": "7fab76f9-afc8-4678-a3a1-4ecea26709b5",
+    "quality_status": "INSUFFICIENT_VALID_PIXELS",
+    "quality": {
+      "valid_pixel_pct": 0.0,
+      "cloud_pixel_pct": 100.0,
+      "shadow_pixel_pct": 0.0,
+      "vegetation_pixel_pct": 0.0
+    },
+    "indices": {
+      "NDVI": {
+        "min": "NaN",
+        "max": "NaN",
+        "mean": "NaN",
+        "stddev": "NaN",
+        "median": "NaN",
+        "p10": "NaN",
+        "p90": "NaN",
+        "sample_count": 1,
+        "nodata_count": 1
+      },
+      "NDRE": {
+        "min": "NaN",
+        "max": "NaN",
+        "mean": "NaN",
+        "stddev": "NaN",
+        "median": "NaN",
+        "p10": "NaN",
+        "p90": "NaN",
+        "sample_count": 1,
+        "nodata_count": 1
+      },
+      "NDMI": {
+        "min": "NaN",
+        "max": "NaN",
+        "mean": "NaN",
+        "stddev": "NaN",
+        "median": "NaN",
+        "p10": "NaN",
+        "p90": "NaN",
+        "sample_count": 1,
+        "nodata_count": 1
+      }
+    },
+    "analysis_scope": "INTERIOR_POLYGON"
+  },
+  "anomaly_status": "INSUFFICIENT_EVIDENCE",
+  "before": {
+    "stock": 166,
+    "activities": 20,
+    "executions": 20
+  },
+  "after": {
+    "stock": 166,
+    "activities": 20,
+    "executions": 20,
+    "diagnoses": 0
+  }
+}

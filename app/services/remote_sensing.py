@@ -17,10 +17,16 @@ def _rule(c,code):
     if not r: raise ActivityRegisterValidation(f"Verified active rule {code} unavailable.")
     return r
 def _cycle(c,plot_id,d):
+    """Resolve the most recent crop cycle whose operational baseline has started.
+
+    Activity Register crop_cycles does not define an end_date column. Remote sensing
+    evidence remains plot-level first; this resolver only supplies an optional crop
+    cycle context using canonical baseline fields already present in the domain model.
+    """
     return c.execute("""SELECT * FROM public.crop_cycles WHERE plot_id=%s
       AND COALESCE(dap_baseline_date,planting_date)<=%s
-      AND (end_date IS NULL OR end_date>=%s)
-      ORDER BY COALESCE(dap_baseline_date,planting_date) DESC LIMIT 1""",(plot_id,d,d)).fetchone()
+      ORDER BY COALESCE(dap_baseline_date,planting_date) DESC,created_at DESC LIMIT 1""",
+      (plot_id,d)).fetchone()
 
 def discover_scenes(plot_id,date_from,date_to,max_cloud_cover_pct=80,limit=20):
     geom=get_active_geometry(plot_id); client=CdseStacClient()

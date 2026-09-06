@@ -15,6 +15,15 @@ class DBTests(unittest.TestCase):
         with connection() as c:
             n=c.execute("SELECT count(*) n FROM public.remote_sensing_rule_packs WHERE active=true AND verification_status<>'VERIFIED'").fetchone()["n"]
             self.assertEqual(n,0)
+    def test_crop_cycle_resolution_uses_live_schema(self):
+        from datetime import date
+        from app.services.remote_sensing import _cycle
+        with connection() as c:
+            plot=c.execute("SELECT id FROM public.plots WHERE code='PLOT-001'").fetchone()
+            self.assertIsNotNone(plot)
+            cycle=_cycle(c,plot["id"],date.today())
+            self.assertIsNotNone(cycle)
+            self.assertEqual(cycle["plot_id"],plot["id"])
     def test_five_bendri_geometries(self):
         with connection() as c:
             rows=c.execute("""SELECT p.code,pg.calculated_area_acres,ST_IsValid(pg.geom) valid

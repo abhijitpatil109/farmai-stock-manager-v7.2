@@ -51,6 +51,10 @@ class AuthorityBoundaryTests(unittest.TestCase):
         s=Path("database/010_phase9_remote_sensing.sql").read_text()
         self.assertIn("ck_rs_anomaly_no_diagnosis",s)
         self.assertIn("diagnosis IS NULL",s)
+    def test_remote_sensing_uses_canonical_crop_cycle_schema(self):
+        text=Path("app/services/remote_sensing.py").read_text()
+        self.assertNotIn("end_date IS NULL",text)
+        self.assertIn("COALESCE(dap_baseline_date,planting_date)",text)
     def test_anomaly_thresholds_from_rulepack(self):
         s=Path("app/services/remote_anomaly.py").read_text()
         self.assertIn('p["z_threshold"]',s)
