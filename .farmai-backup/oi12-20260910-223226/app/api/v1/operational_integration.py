@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import traceback
-from datetime import date
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query
@@ -14,11 +13,9 @@ from ...core.security import require_api_key
 from ...schemas.activity_farmer_entry import FarmerActivityEntry
 from ...schemas.operational_integration import OperationalActivityCompleteRequest
 from ...services.operational_integration import (
-    CONTRACT_VERSION,
     operational_health,
     capabilities,
     operational_stock,
-    operational_activity_history,
     build_operational_context,
     preview_operational_activity,
     complete_operational_activity,
@@ -41,8 +38,10 @@ router = APIRouter(
 
 def _err(exc):
     status = (
-        404 if isinstance(exc, ActivityRegisterNotFound)
-        else 409 if isinstance(exc, ActivityRegisterConflict)
+        404
+        if isinstance(exc, ActivityRegisterNotFound)
+        else 409
+        if isinstance(exc, ActivityRegisterConflict)
         else 422
     )
     return JSONResponse(
@@ -57,7 +56,14 @@ def _err(exc):
 
 
 def _unexpected_error(exc: Exception, *, operation: str):
+    """
+    Convert an unexpected exception into a correlation-safe 500 response.
+
+    Full exception details are logged server-side only. The API response exposes
+    only an incident_id so production DB/internal details are not leaked.
+    """
     incident_id = f"OI-{uuid4().hex[:12].upper()}"
+
     stage = getattr(exc, "stage", None)
     original = getattr(exc, "original_exception", None)
 
@@ -100,69 +106,16 @@ def health():
 
 @router.get("/capabilities", operation_id="getOperationalCapabilities")
 def get_capabilities():
-    return success_response(capabilities())
+    data = capabilities()
+    if "getOperationalCropDecisionContext" not in data.get("read_tools", []):
+        data["read_tools"].append("getOperationalCropDecisionContext")
+    data["decision_contract_version"] = "OI-1.1.0"
+    return success_response(data)
 
 
-@router.get(
-    "/stock",
-    operation_id="getOperationalStock",
-    summary="Get complete authoritative FarmAI stock",
-    description=(
-        "Authoritative GPT-facing stock read. Returns EVERY active FarmAI product, "
-        "including zero-stock products and products with no stock transaction yet. "
-        "For complete/current stock questions use this operation, not getCurrentInventory."
-    ),
-)
+@router.get("/stock", operation_id="getOperationalStock")
 def stock():
-    try:
-        return success_response(operational_stock())
-    except (
-        ActivityRegisterNotFound,
-        ActivityRegisterConflict,
-        ActivityRegisterValidation,
-    ) as exc:
-        return _err(exc)
-    except Exception as exc:
-        return _unexpected_error(exc, operation="getOperationalStock")
-
-
-@router.get(
-    "/activity-history",
-    operation_id="getOperationalActivityHistory",
-    summary="Get authoritative FarmAI activity history",
-    description=(
-        "Authoritative GPT-facing Activity History. Reads Activity + Execution + "
-        "purpose + products + linked Stock transactions. Use this for latest/history "
-        "questions after crop-use stock deductions."
-    ),
-)
-def activity_history(
-    crop_cycle_id: UUID | None = None,
-    crop_name: str | None = None,
-    date_from: date | None = None,
-    date_to: date | None = None,
-    execution_status: str | None = None,
-    limit: int = Query(default=200, ge=1, le=500),
-):
-    try:
-        return success_response(
-            operational_activity_history(
-                crop_cycle_id=crop_cycle_id,
-                crop_name=crop_name,
-                date_from=date_from,
-                date_to=date_to,
-                execution_status=execution_status,
-                limit=limit,
-            )
-        )
-    except (
-        ActivityRegisterNotFound,
-        ActivityRegisterConflict,
-        ActivityRegisterValidation,
-    ) as exc:
-        return _err(exc)
-    except Exception as exc:
-        return _unexpected_error(exc, operation="getOperationalActivityHistory")
+    return success_response(operational_stock())
 
 
 @router.get("/context", operation_id="getOperationalContext")
@@ -219,15 +172,12 @@ def crop_decision_context(
         return _err(exc)
     except Exception as exc:
         return _unexpected_error(
-            exc, operation="getOperationalCropDecisionContext"
+            exc,
+            operation="getOperationalCropDecisionContext",
         )
 
 
-@router.post(
-    "/activity/preview",
-    operation_id="previewOperationalActivity",
-    summary="Preview crop Activity + Stock impact",
-)
+@router.post("/activity/preview", operation_id="previewOperationalActivity")
 def preview_activity(req: FarmerActivityEntry):
     try:
         return success_response(preview_operational_activity(req))
@@ -241,18 +191,7 @@ def preview_activity(req: FarmerActivityEntry):
         return _unexpected_error(exc, operation="previewOperationalActivity")
 
 
-@router.post(
-    "/activity/complete",
-    operation_id="completeOperationalActivity",
-    summary="Record completed crop Activity and synchronize Stock",
-    description=(
-        "Use this operation whenever stock consumption belongs to a crop activity. "
-        "It records Activity + Execution + purpose + actual product quantities and "
-        "idempotently synchronizes Stock. The response includes a write_confirmation "
-        "proving Activity History visibility and Stock transaction linkage. "
-        "Do not use a generic stock-usage operation for crop applications."
-    ),
-)
+@router.post("/activity/complete", operation_id="completeOperationalActivity")
 def complete_activity(req: OperationalActivityCompleteRequest):
     try:
         return success_response(complete_operational_activity(req))

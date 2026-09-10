@@ -54,6 +54,8 @@ def _run_stage(stage: str, fn):
     except ActivityRegisterValidation:
         raise
     except ValidationError as exc:
+        # Internal Pydantic validation is a business/input validation problem,
+        # not a server outage. Surface it as the normal FarmAI 422 contract.
         raise ActivityRegisterValidation(
             f"Activity validation failed at {stage}: {_validation_message(exc)}"
         ) from exc
@@ -200,20 +202,7 @@ def preview_farmer_activity(req):
     return _run_stage("preview.build_response", build_preview)
 
 
-def complete_farmer_activity(req, *, source_type: str = "MANUAL"):
-    """
-    Farmer activity orchestration.
-
-    The write remains recoverable/idempotent across Activity -> Execution -> Stock
-    boundaries. If Stock synchronization fails after Activity/Execution commit,
-    retrying the SAME idempotency_key resumes synchronization through the duplicate
-    recovery branch. Failures are never silently swallowed.
-    """
-    if source_type not in ("MANUAL", "AI_CHAT", "API"):
-        raise ActivityRegisterValidation(
-            f"Unsupported Activity source_type '{source_type}'."
-        )
-
+def complete_farmer_activity(req):
     cycle = _run_stage("complete.resolve_cycle", lambda: _resolve_cycle(req))
     source = f"FARMER-ENTRY:{req.idempotency_key}"
 
@@ -258,6 +247,7 @@ def complete_farmer_activity(req, *, source_type: str = "MANUAL"):
         }
 
     pv = _run_stage("complete.preview", lambda: preview_farmer_activity(req))
+
     planned = []
     actual = []
 
@@ -306,7 +296,7 @@ def complete_farmer_activity(req, *, source_type: str = "MANUAL"):
                 planned_water_unit_code="L" if pv["water_volume_l"] else None,
                 purpose_codes=req.purpose_codes,
                 inputs=planned,
-                source_type=source_type,
+                source_type="MANUAL",
                 source_reference=source,
                 verification_status="CONFIRMED",
                 source_confidence="CONFIRMED",

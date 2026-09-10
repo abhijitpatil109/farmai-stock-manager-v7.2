@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from decimal import Decimal
 from uuid import UUID
 
 from ..db import connection
@@ -8,32 +9,22 @@ from .activity_farmer_experience import farmer_dashboard
 from .activity_intelligence import build_intelligence_context
 from .activity_proactive_planner import proactive_board
 from .activity_farmer_entry import preview_farmer_activity, complete_farmer_activity
+from .activity_history import activity_history_detail
 from .activity_register import ActivityRegisterNotFound, ActivityRegisterValidation
 
 
-CONTRACT_VERSION = "OI-1.0.0"
+CONTRACT_VERSION = "OI-1.2.0"
 
 
 def _safe_section(name, fn):
     try:
         return {"status": "AVAILABLE", "data": fn()}
     except Exception as exc:
-        # Operational context should degrade by evidence section rather than fabricate
-        # a "no issue" state. Error details are intentionally compact.
         return {
             "status": "UNAVAILABLE",
             "reason": f"{type(exc).__name__}: {str(exc)[:500]}",
             "section": name,
         }
-
-
-def _inventory():
-    with connection() as conn:
-        rows = conn.execute(
-            """SELECT * FROM public.current_inventory
-               ORDER BY category, product_name, location_code"""
-        ).fetchall()
-    return [dict(r) for r in rows]
 
 
 def _resolve_farm(farm_id=None):
@@ -57,10 +48,310 @@ def _resolve_farm(farm_id=None):
     return dict(row)
 
 
+def _complete_inventory():
+    """
+    Authoritative complete operational stock projection.
+
+    Important: starts from products, not current_inventory, so an active product
+    remains visible even if it has no transaction row yet or its quantity is zero.
+    """
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            WITH inventory_totals AS (
+                SELECT
+                    product_code,
+                    MAX(unit) AS inventory_unit,
+                    SUM(physical_stock) AS physical_stock,
+                    SUM(reserved_stock) AS reserved_stock,
+                    SUM(available_stock) AS available_stock,
+                    jsonb_agg(
+                        jsonb_build_object(
+                            'location_code', location_code,
+                            'physical_stock', physical_stock,
+                            'reserved_stock', reserved_stock,
+                            'available_stock', available_stock
+                        )
+                        ORDER BY location_code
+                    ) AS locations
+                FROM public.current_inventory
+                GROUP BY product_code
+            )
+            SELECT
+                p.id AS product_id,
+                p.product_code,
+                p.product_name,
+                p.brand,
+                p.category AS database_category,
+                p.formulation,
+                p.composition_text,
+                p.base_unit,
+                p.reorder_level,
+                p.minimum_stock,
+                pdm.registry_category,
+                pdm.product_name_mr,
+                pdm.used_for_en,
+                pdm.used_for_mr,
+                pdm.apply_when_en,
+                pdm.apply_when_mr,
+                pdm.standard_dose,
+                pdm.content,
+                pdm.farmai_advice_en,
+                pdm.farmai_advice_mr,
+                COALESCE(it.inventory_unit, p.base_unit) AS stock_unit,
+                COALESCE(it.physical_stock, 0) AS physical_stock,
+                COALESCE(it.reserved_stock, 0) AS reserved_stock,
+                COALESCE(it.available_stock, 0) AS available_stock,
+                COALESCE(it.locations, '[]'::jsonb) AS locations
+            FROM public.products p
+            LEFT JOIN inventory_totals it
+              ON lower(it.product_code)=lower(p.product_code)
+            LEFT JOIN public.product_display_metadata pdm
+              ON pdm.product_id=p.id
+            WHERE p.active=true
+            ORDER BY
+                COALESCE(pdm.registry_category, p.category, 'ZZZ'),
+                p.product_name,
+                p.product_code
+            """
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _stock_status(row):
+    qty = Decimal(str(row["available_stock"] or 0))
+    reorder = Decimal(str(row["reorder_level"] or 0))
+    if qty < 0:
+        return "DISCREPANCY"
+    if qty == 0:
+        return "OUT"
+    if reorder > 0 and qty <= reorder:
+        return "LOW"
+    return "GOOD"
+
+
+def operational_stock():
+    products = _complete_inventory()
+    for item in products:
+        item["status_code"] = _stock_status(item)
+
+    active_count = len(products)
+    with_inventory_row = sum(1 for x in products if x["locations"])
+    zero_stock_count = sum(
+        1 for x in products if Decimal(str(x["available_stock"] or 0)) == 0
+    )
+    unmapped = [
+        x["product_code"]
+        for x in products
+        if not x.get("registry_category")
+    ]
+    low = [x for x in products if x["status_code"] in ("LOW", "OUT", "DISCREPANCY")]
+
+    return {
+        "contract_version": CONTRACT_VERSION,
+        "as_of_date": date.today(),
+        "source": "products LEFT JOIN current_inventory + product_display_metadata",
+        "completeness": {
+            "complete_active_product_projection": True,
+            "active_product_count": active_count,
+            "returned_product_count": len(products),
+            "products_with_inventory_rows": with_inventory_row,
+            "zero_stock_product_count": zero_stock_count,
+            "unmapped_registry_product_count": len(unmapped),
+            "unmapped_registry_product_codes": unmapped,
+        },
+        "products": products,
+        "low_or_attention_stock": low,
+    }
+
+
+def operational_activity_history(
+    *,
+    crop_cycle_id: UUID | None = None,
+    crop_name: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    execution_status: str | None = None,
+    limit: int = 200,
+):
+    if not 1 <= limit <= 500:
+        raise ActivityRegisterValidation("limit must be between 1 and 500.")
+    if date_from and date_to and date_from > date_to:
+        raise ActivityRegisterValidation("date_from cannot be later than date_to.")
+
+    clauses = ["1=1"]
+    params = []
+
+    if crop_cycle_id:
+        clauses.append("cc.id=%s")
+        params.append(crop_cycle_id)
+    if crop_name:
+        clauses.append(
+            "(lower(cc.crop_name_en)=lower(%s) OR cc.crop_name_mr=%s)"
+        )
+        params.extend([crop_name, crop_name])
+    if date_from:
+        clauses.append(
+            "COALESCE(ae.execution_date,a.scheduled_date,a.planned_date,a.created_at::date) >= %s"
+        )
+        params.append(date_from)
+    if date_to:
+        clauses.append(
+            "COALESCE(ae.execution_date,a.scheduled_date,a.planned_date,a.created_at::date) <= %s"
+        )
+        params.append(date_to)
+    if execution_status:
+        clauses.append("ae.status=%s")
+        params.append(execution_status)
+
+    params.append(limit)
+
+    sql = f"""
+        SELECT
+            cc.id AS crop_cycle_id,
+            cc.cycle_code,
+            cc.crop_name_en,
+            cc.crop_name_mr,
+            cc.planting_date,
+            cc.dap_baseline_date,
+            pplot.code AS plot_code,
+            pplot.name_en AS plot_name_en,
+            pplot.name_mr AS plot_name_mr,
+
+            a.id AS activity_id,
+            a.status AS activity_status,
+            a.name_en AS activity_name_en,
+            a.name_mr AS activity_name_mr,
+            a.notes_en AS activity_notes_en,
+            a.notes_mr AS activity_notes_mr,
+            a.source_type,
+            a.source_reference,
+            a.verification_status,
+            a.source_confidence,
+            at.code AS activity_type_code,
+            at.name_en AS activity_type_name_en,
+            at.name_mr AS activity_type_name_mr,
+            a.application_method_code,
+
+            ae.id AS execution_id,
+            ae.execution_no,
+            ae.execution_date,
+            ae.status AS execution_status,
+            ae.dap_at_execution,
+            ae.area_treated,
+            ae.area_unit_code,
+            ae.pump_count,
+            ae.water_volume,
+            ae.water_unit_code,
+            ae.performed_by,
+            ae.notes_en AS execution_notes_en,
+            ae.notes_mr AS execution_notes_mr,
+
+            COALESCE(
+                (
+                    SELECT jsonb_agg(
+                        jsonb_build_object(
+                            'code', ap.code,
+                            'name_en', ap.name_en,
+                            'name_mr', ap.name_mr
+                        )
+                        ORDER BY ap.sort_order, ap.code
+                    )
+                    FROM public.activity_purpose_links apl
+                    JOIN public.activity_purposes ap
+                      ON ap.id=apl.activity_purpose_id
+                    WHERE apl.activity_id=a.id
+                ),
+                '[]'::jsonb
+            ) AS purposes,
+
+            COALESCE(
+                (
+                    SELECT jsonb_agg(
+                        jsonb_build_object(
+                            'execution_input_id', aei.id,
+                            'product_id', prod.id,
+                            'product_code', prod.product_code,
+                            'product_name_en', prod.product_name,
+                            'product_name_mr', pdm.product_name_mr,
+                            'brand', prod.brand,
+                            'category', prod.category,
+                            'actual_dose', aei.actual_dose,
+                            'actual_dose_unit_code', aei.actual_dose_unit_code,
+                            'dose_basis_code', aei.dose_basis_code,
+                            'actual_total_quantity', aei.actual_total_quantity,
+                            'actual_total_unit_code', aei.actual_total_unit_code,
+                            'stock_sync_status', aei.stock_sync_status,
+                            'stock_transaction_id', aei.stock_transaction_id,
+                            'stock_transaction_no', st.transaction_no,
+                            'stock_transaction_type', st.transaction_type,
+                            'stock_quantity_out', st.quantity_out,
+                            'stock_unit', st.unit,
+                            'stock_transaction_status', st.status
+                        )
+                        ORDER BY aei.created_at, aei.id
+                    )
+                    FROM public.activity_execution_inputs aei
+                    JOIN public.products prod ON prod.id=aei.product_id
+                    LEFT JOIN public.product_display_metadata pdm
+                      ON pdm.product_id=prod.id
+                    LEFT JOIN public.stock_transactions st
+                      ON st.id=aei.stock_transaction_id
+                    WHERE aei.execution_id=ae.id
+                ),
+                '[]'::jsonb
+            ) AS inputs
+
+        FROM public.activities a
+        JOIN public.crop_cycles cc ON cc.id=a.crop_cycle_id
+        JOIN public.plots pplot ON pplot.id=cc.plot_id
+        JOIN public.activity_types at ON at.id=a.activity_type_id
+        LEFT JOIN public.activity_executions ae ON ae.activity_id=a.id
+        WHERE {" AND ".join(clauses)}
+        ORDER BY
+            COALESCE(ae.execution_date,a.scheduled_date,a.planned_date,a.created_at::date) DESC,
+            a.created_at DESC,
+            ae.execution_no DESC NULLS LAST
+        LIMIT %s
+    """
+
+    with connection() as conn:
+        rows = [dict(r) for r in conn.execute(sql, tuple(params)).fetchall()]
+
+    completed = [
+        r for r in rows if r.get("execution_status") == "COMPLETED"
+    ]
+    synced_inputs = sum(
+        1
+        for r in rows
+        for item in (r.get("inputs") or [])
+        if item.get("stock_sync_status") == "SYNCED"
+    )
+
+    return {
+        "contract_version": CONTRACT_VERSION,
+        "filters": {
+            "crop_cycle_id": crop_cycle_id,
+            "crop_name": crop_name,
+            "date_from": date_from,
+            "date_to": date_to,
+            "execution_status": execution_status,
+            "limit": limit,
+        },
+        "summary": {
+            "returned_rows": len(rows),
+            "completed_executions": len(completed),
+            "stock_synced_inputs": synced_inputs,
+        },
+        "history": rows,
+    }
+
+
 def operational_health():
     required_relations = [
         "farms", "plots", "crop_cycles", "activities", "activity_executions",
-        "stock_transactions", "current_inventory", "intelligence_recommendations",
+        "activity_execution_inputs", "stock_transactions", "current_inventory",
+        "products", "product_display_metadata", "intelligence_recommendations",
         "weather_locations", "plot_geometries", "plot_remote_observations",
         "scouting_tasks",
     ]
@@ -69,12 +360,15 @@ def operational_health():
         rels = {}
         for rel in required_relations:
             rels[rel] = bool(
-                conn.execute("SELECT to_regclass(%s) AS r", (f"public.{rel}",)).fetchone()["r"]
+                conn.execute(
+                    "SELECT to_regclass(%s) AS r", (f"public.{rel}",)
+                ).fetchone()["r"]
             )
         phase_counts = conn.execute(
             """SELECT
               (SELECT count(*) FROM public.farms WHERE active=true) active_farms,
               (SELECT count(*) FROM public.crop_cycles WHERE status='ACTIVE') active_crop_cycles,
+              (SELECT count(*) FROM public.products WHERE active=true) active_products,
               (SELECT count(*) FROM public.activities) activities,
               (SELECT count(*) FROM public.activity_executions) executions,
               (SELECT count(*) FROM public.stock_transactions) stock_transactions"""
@@ -85,7 +379,10 @@ def operational_health():
         "db_today": db_today,
         "required_relations": rels,
         "counts": dict(phase_counts),
-        "write_policy": "Explicit farmer authorization required for operational complete.",
+        "write_policy": (
+            "Crop-use stock consumption must be recorded through "
+            "completeOperationalActivity so Activity + Execution + Stock lineage is preserved."
+        ),
     }
 
 
@@ -96,7 +393,9 @@ def capabilities():
         "read_tools": [
             "getOperationalContext",
             "getOperationalStock",
+            "getOperationalActivityHistory",
             "getOperationalHealth",
+            "getOperationalCropDecisionContext",
         ],
         "write_tools": [
             "previewOperationalActivity",
@@ -104,36 +403,36 @@ def capabilities():
         ],
         "write_guardrails": {
             "preview": "No authoritative write.",
-            "complete": "Requires farmer_authorized=true and uses existing Farmer Entry + Stock sync.",
-            "recommendations": "Never imply or record COMPLETED without explicit farmer authorization.",
+            "complete": (
+                "Requires farmer_authorized=true. Crop-use consumption creates "
+                "Activity + Execution and then idempotently synchronizes Stock."
+            ),
+            "crop_usage_rule": (
+                "Never use a generic stock-usage transaction when crop/activity/purpose "
+                "context exists; use completeOperationalActivity."
+            ),
+            "idempotency": (
+                "Retry the same logical write with the same idempotency_key. "
+                "Never generate a new key for a retry of the same activity."
+            ),
+            "recommendations": (
+                "Never imply or record COMPLETED without explicit farmer authorization."
+            ),
             "remote_sensing": "Evidence only; never diagnosis or execution authority.",
+        },
+        "read_contract": {
+            "stock": (
+                "getOperationalStock returns every active product, including zero-stock "
+                "products and products without inventory transactions."
+            ),
+            "activity_history": (
+                "getOperationalActivityHistory is the authoritative GPT-facing history read."
+            ),
         },
         "truth_model": {
             "current_operational_state": "FarmAI API/database",
             "conversation_memory": "Context aid only; never current operational truth",
         },
-    }
-
-
-def operational_stock():
-    inv = _inventory()
-    low = []
-    for r in inv:
-        # Column names come from current_inventory. If a deployment adds/removes
-        # thresholds, the full row remains available and this low-stock derivative
-        # simply becomes best-effort.
-        qty = r.get("available_quantity", r.get("quantity", r.get("current_stock")))
-        minimum = r.get("minimum_stock")
-        try:
-            if qty is not None and minimum is not None and qty <= minimum:
-                low.append(r)
-        except TypeError:
-            pass
-    return {
-        "as_of_date": date.today(),
-        "inventory": inv,
-        "low_stock": low,
-        "inventory_count": len(inv),
     }
 
 
@@ -159,7 +458,8 @@ def build_operational_context(
     )
     cycles = [
         c for c in dashboard["crop_cycles"]
-        if c["status"] == "ACTIVE" and (not crop_cycle_id or c["crop_cycle_id"] == crop_cycle_id)
+        if c["status"] == "ACTIVE"
+        and (not crop_cycle_id or c["crop_cycle_id"] == crop_cycle_id)
     ]
 
     planner = _safe_section(
@@ -172,6 +472,15 @@ def build_operational_context(
         ),
     )
     stock = _safe_section("stock", operational_stock)
+    recent_history = _safe_section(
+        "activity_history",
+        lambda: operational_activity_history(
+            crop_cycle_id=crop_cycle_id,
+            date_from=today - timedelta(days=history_days),
+            date_to=today,
+            limit=200,
+        ),
+    )
 
     intelligence = {}
     if include_intelligence:
@@ -179,7 +488,9 @@ def build_operational_context(
             cid = cycle["crop_cycle_id"]
             intelligence[str(cid)] = _safe_section(
                 "intelligence",
-                lambda cid=cid: build_intelligence_context(cid, history_days=history_days),
+                lambda cid=cid: build_intelligence_context(
+                    cid, history_days=history_days
+                ),
             )
 
     attention = {
@@ -187,10 +498,15 @@ def build_operational_context(
         "today": dashboard["summary"].get("today", 0),
         "upcoming": dashboard["summary"].get("upcoming", 0),
         "degraded_sections": [
-            name for name, section in (("planner", planner), ("stock", stock))
+            name for name, section in (
+                ("planner", planner),
+                ("stock", stock),
+                ("activity_history", recent_history),
+            )
             if section["status"] != "AVAILABLE"
         ] + [
-            f"intelligence:{cid}" for cid, section in intelligence.items()
+            f"intelligence:{cid}"
+            for cid, section in intelligence.items()
             if section["status"] != "AVAILABLE"
         ],
     }
@@ -204,11 +520,13 @@ def build_operational_context(
         "dashboard": dashboard,
         "planner": planner,
         "stock": stock,
+        "recent_activity_history": recent_history,
         "intelligence_by_crop_cycle": intelligence,
         "guardrails": [
             "COMPLETED, PLANNED, RECOMMENDED, OBSERVED and REMOTE_EVIDENCE are distinct states.",
             "Remote sensing is evidence, not diagnosis.",
             "No recommendation becomes a completed Activity without farmer authorization.",
+            "Crop-use stock deductions must retain Activity/Execution lineage.",
             "Current operational facts come from FarmAI, not conversation memory.",
         ],
     }
@@ -218,10 +536,87 @@ def preview_operational_activity(entry):
     return preview_farmer_activity(entry)
 
 
+def _extract_write_confirmation(command, result):
+    activity_record = result.get("activity") or {}
+    header = activity_record.get("activity") or {}
+    executions = activity_record.get("executions") or []
+    execution = executions[-1] if executions else {}
+    stock_sync = result.get("stock_sync") or {}
+
+    activity_id = header.get("id")
+    execution_id = execution.get("id")
+    crop_cycle_id = header.get("crop_cycle_id") or command.entry.crop_cycle_id
+
+    history_verified = False
+    if activity_id:
+        readback = activity_history_detail(activity_id)
+        history_verified = any(
+            row.get("execution_id") == execution_id
+            for row in (readback.get("executions") or [])
+        )
+
+    stock_inputs = stock_sync.get("inputs") or []
+    stock_verified = (
+        not command.entry.sync_stock
+        or (
+            stock_sync.get("status") == "SYNCED"
+            and len(stock_inputs) == len(command.entry.inputs)
+            and all(x.get("transaction_id") for x in stock_inputs)
+        )
+    )
+
+    return {
+        "authoritative": True,
+        "duplicate": bool(result.get("duplicate")),
+        "activity_recorded": bool(activity_id),
+        "execution_recorded": bool(execution_id),
+        "history_verified": history_verified,
+        "stock_sync_requested": command.entry.sync_stock,
+        "stock_verified": stock_verified,
+        "activity_id": activity_id,
+        "execution_id": execution_id,
+        "crop_cycle_id": crop_cycle_id,
+        "crop_name": command.entry.crop_name,
+        "execution_date": command.entry.execution_date,
+        "activity_type_code": command.entry.activity_type_code,
+        "purpose_codes": command.entry.purpose_codes,
+        "stock_inputs": stock_inputs,
+        "history_lookup": {
+            "operation": "getOperationalActivityHistory",
+            "activity_id": activity_id,
+            "crop_cycle_id": crop_cycle_id,
+        },
+    }
+
+
 def complete_operational_activity(command):
-    # Literal True is enforced by schema; retain a service-layer check as defense in depth.
     if command.farmer_authorized is not True:
         raise ActivityRegisterValidation(
             "Explicit farmer authorization is required for an operational write."
         )
-    return complete_farmer_activity(command.entry)
+
+    # Preserve manual entry semantics elsewhere while recording GPT-originated
+    # operational writes with accurate provenance.
+    result = complete_farmer_activity(
+        command.entry,
+        source_type="AI_CHAT",
+    )
+    confirmation = _extract_write_confirmation(command, result)
+
+    if not confirmation["activity_recorded"] or not confirmation["execution_recorded"]:
+        raise ActivityRegisterValidation(
+            "Operational write did not produce Activity + Execution lineage."
+        )
+    if command.entry.sync_stock and not confirmation["stock_verified"]:
+        raise ActivityRegisterValidation(
+            "Operational write completed without fully verified Stock synchronization."
+        )
+    if not confirmation["history_verified"]:
+        raise ActivityRegisterValidation(
+            "Operational write could not be verified in authoritative Activity History."
+        )
+
+    return {
+        **result,
+        "write_confirmation": confirmation,
+    }
