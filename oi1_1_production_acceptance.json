@@ -1,0 +1,17 @@
+{
+  "release": "OI-1.1.0",
+  "timestamp": "2026-09-06T13:27:09.053880+00:00",
+  "checks": {
+    "mode": true,
+    "statuses": true,
+    "dap": true,
+    "recency": true,
+    "nutrients": true,
+    "rotation": true,
+    "weather": true,
+    "remote": true,
+    "stock": true
+  },
+  "all_assertions_passed": true,
+  "mutation_policy": "read-only"
+}
