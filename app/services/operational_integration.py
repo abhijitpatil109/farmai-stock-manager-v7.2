@@ -13,7 +13,7 @@ from .activity_history import activity_history_detail
 from .activity_register import ActivityRegisterNotFound, ActivityRegisterValidation
 
 
-CONTRACT_VERSION = "OI-1.2.0"
+CONTRACT_VERSION = "OI-1.2.2"
 
 
 def _safe_section(name, fn):
@@ -131,37 +131,119 @@ def _stock_status(row):
 
 
 def operational_stock():
-    products = _complete_inventory()
-    for item in products:
-        item["status_code"] = _stock_status(item)
+    """
+    Compact, complete GPT-facing stock projection.
 
-    active_count = len(products)
-    with_inventory_row = sum(1 for x in products if x["locations"])
-    zero_stock_count = sum(
-        1 for x in products if Decimal(str(x["available_stock"] or 0)) == 0
-    )
-    unmapped = [
-        x["product_code"]
-        for x in products
-        if not x.get("registry_category")
+    Completeness is preserved by sourcing from _complete_inventory(), which starts
+    from every active product. The response intentionally excludes internal IDs,
+    per-location balances, formulation/composition duplicates and duplicated
+    low-stock objects because those fields are not required to render the frozen
+    V7.2 registry and can exceed GPT Action response limits.
+    """
+    source_rows = _complete_inventory()
+
+    category_order = [
+        ("Fertilizers", "खते"),
+        ("Biostimulants & Biofertilizers", "जैव उत्तेजक व जैव खते"),
+        ("Micronutrients", "सूक्ष्म अन्नद्रव्ये"),
+        ("Fungicides", "बुरशीनाशके"),
+        ("Insecticides", "कीटकनाशके"),
+        ("Herbicides", "तणनाशके"),
+        ("Biopesticides", "जैव कीटकनाशके"),
+        ("Adjuvants / Stickers", "सहाय्यक द्रव्ये / स्टिकर्स"),
     ]
-    low = [x for x in products if x["status_code"] in ("LOW", "OUT", "DISCREPANCY")]
+
+    legacy_map = {
+        "Fertilizers": "Fertilizers",
+        "Biostimulants & Growth Promoters": "Biostimulants & Biofertilizers",
+        "Biostimulants & Biofertilizers": "Biostimulants & Biofertilizers",
+        "Micronutrients": "Micronutrients",
+        "Fungicides": "Fungicides",
+        "Insecticides": "Insecticides",
+        "Herbicides": "Herbicides",
+        "Biopesticides": "Biopesticides",
+        "Adjuvants": "Adjuvants / Stickers",
+        "Adjuvants / Stickers": "Adjuvants / Stickers",
+    }
+
+    grouped = {
+        name_en: {
+            "name_en": name_en,
+            "name_mr": name_mr,
+            "products": [],
+        }
+        for name_en, name_mr in category_order
+    }
+
+    unmapped = []
+
+    for row in source_rows:
+        category = (
+            row.get("registry_category")
+            or legacy_map.get(row.get("database_category"))
+        )
+
+        if category not in grouped:
+            unmapped.append(row["product_code"])
+            continue
+
+        status_code = _stock_status(row)
+        status_display = {
+            "GOOD": "🟢 Good",
+            "LOW": "🟡 Low",
+            "OUT": "🔴 Out",
+            "DISCREPANCY": "⚪ Unknown",
+        }[status_code]
+
+        qty = row.get("available_stock")
+        unit = row.get("stock_unit") or row.get("base_unit")
+        qty_text = format(Decimal(str(qty or 0)), "f").rstrip("0").rstrip(".")
+        if not qty_text:
+            qty_text = "0"
+        stock_display = f"{qty_text} {unit}" if unit else qty_text
+
+        grouped[category]["products"].append({
+            "product_code": row["product_code"],
+            "product_en": row["product_name"],
+            "product_mr": row.get("product_name_mr"),
+            "stock": stock_display,
+            "status": status_display,
+            "used_for_en": row.get("used_for_en") or "Unknown",
+            "used_for_mr": row.get("used_for_mr") or "Unknown",
+            "apply_when_en": row.get("apply_when_en") or "Unknown",
+            "apply_when_mr": row.get("apply_when_mr") or "Unknown",
+            "dose": row.get("standard_dose") or "Unknown",
+            "content": row.get("content") or "Unknown",
+            "farmai_advice_en": row.get("farmai_advice_en") or "—",
+            "farmai_advice_mr": row.get("farmai_advice_mr") or "—",
+            "inventory_discrepancy": status_code == "DISCREPANCY",
+        })
+
+    categories = [grouped[name_en] for name_en, _ in category_order]
+    returned_count = sum(len(c["products"]) for c in categories)
 
     return {
-        "contract_version": CONTRACT_VERSION,
+        "contract_version": "OI-1.2.2",
         "as_of_date": date.today(),
-        "source": "products LEFT JOIN current_inventory + product_display_metadata",
+        "registry_version": "7.2",
+        "columns": [
+            "Product",
+            "Stock",
+            "Status",
+            "Used For",
+            "Apply When",
+            "Dose",
+            "Content",
+            "FarmAI Advice",
+        ],
         "completeness": {
             "complete_active_product_projection": True,
-            "active_product_count": active_count,
-            "returned_product_count": len(products),
-            "products_with_inventory_rows": with_inventory_row,
-            "zero_stock_product_count": zero_stock_count,
-            "unmapped_registry_product_count": len(unmapped),
-            "unmapped_registry_product_codes": unmapped,
+            "active_product_count": len(source_rows),
+            "returned_product_count": returned_count,
+            "unmapped_product_count": len(unmapped),
+            "unmapped_product_codes": unmapped,
         },
-        "products": products,
-        "low_or_attention_stock": low,
+        "categories": categories,
     }
 
 
