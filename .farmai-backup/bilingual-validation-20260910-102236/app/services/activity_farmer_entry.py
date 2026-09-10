@@ -3,8 +3,6 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
-from pydantic import ValidationError
-
 from ..db import connection
 from ..schemas.activity_register import (
     ActivityCreate,
@@ -27,6 +25,13 @@ D = lambda v: Decimal(str(v))
 
 
 class FarmerActivityStageError(RuntimeError):
+    """
+    Unexpected runtime failure annotated with the stage where it happened.
+
+    Expected FarmAI domain exceptions are deliberately not wrapped so they keep
+    their existing 404/409/422 behavior at the API boundary.
+    """
+
     def __init__(self, stage: str, exc: Exception):
         self.stage = stage
         self.original_exception = exc
@@ -36,29 +41,11 @@ class FarmerActivityStageError(RuntimeError):
         )
 
 
-def _validation_message(exc: ValidationError) -> str:
-    errors = exc.errors()
-    if not errors:
-        return str(exc)
-    parts = []
-    for err in errors:
-        loc = ".".join(str(x) for x in err.get("loc", ()))
-        msg = err.get("msg", "Validation error")
-        parts.append(f"{loc}: {msg}" if loc else msg)
-    return "; ".join(parts)
-
-
 def _run_stage(stage: str, fn):
     try:
         return fn()
     except ActivityRegisterValidation:
         raise
-    except ValidationError as exc:
-        # Internal Pydantic validation is a business/input validation problem,
-        # not a server outage. Surface it as the normal FarmAI 422 contract.
-        raise ActivityRegisterValidation(
-            f"Activity validation failed at {stage}: {_validation_message(exc)}"
-        ) from exc
     except Exception as exc:
         logger.exception(
             "FarmAI farmer-entry stage failed stage=%s exception_type=%s",
@@ -124,14 +111,16 @@ def _multiplier(req, basis):
         w = _water(req)
         if w is None:
             raise ActivityRegisterValidation(
-                "water_volume_l or pump_count + pump_volume_l required for PER_LITRE_WATER."
+                "water_volume_l or pump_count + pump_volume_l required "
+                "for PER_LITRE_WATER."
             )
         return w
     if basis in ("PER_ACRE", "PER_HECTARE"):
         want = "ACRE" if basis == "PER_ACRE" else "HECTARE"
         if req.area is None or str(req.area_unit_code or "").upper() != want:
             raise ActivityRegisterValidation(
-                f"area in {want} required for {basis}; FarmAI will not guess area conversion."
+                f"area in {want} required for {basis}; "
+                "FarmAI will not guess area conversion."
             )
         return D(req.area)
     if basis == "PER_BED":
@@ -160,21 +149,25 @@ def preview_farmer_activity(req):
                          AND active=true""",
                     (i.product_code,),
                 ).fetchone()
+
                 if not p:
                     raise ActivityRegisterValidation(
                         f"Product '{i.product_code}' not found."
                     )
+
                 total = D(i.dose) * _multiplier(req, i.dose_basis_code)
-                items.append({
-                    "product_code": p["product_code"],
-                    "product_name": p["product_name"],
-                    "dose": i.dose,
-                    "dose_unit_code": i.dose_unit_code.upper(),
-                    "dose_basis_code": i.dose_basis_code,
-                    "calculated_total_quantity": total,
-                    "calculated_total_unit_code": i.dose_unit_code.upper(),
-                    "base_unit": p["base_unit"],
-                })
+                items.append(
+                    {
+                        "product_code": p["product_code"],
+                        "product_name": p["product_name"],
+                        "dose": i.dose,
+                        "dose_unit_code": i.dose_unit_code.upper(),
+                        "dose_basis_code": i.dose_basis_code,
+                        "calculated_total_quantity": total,
+                        "calculated_total_unit_code": i.dose_unit_code.upper(),
+                        "base_unit": p["base_unit"],
+                    }
+                )
 
     _run_stage("preview.resolve_products_and_quantities", build_inputs)
 
@@ -184,6 +177,7 @@ def preview_farmer_activity(req):
                 "Crop Cycle DAP baseline date is missing. "
                 "(पीक चक्राची DAP आधार तारीख उपलब्ध नाही.)"
             )
+
         return {
             "crop_cycle": {
                 "id": cycle["id"],
@@ -222,7 +216,10 @@ def complete_farmer_activity(req):
         )
         ex = data["executions"][-1] if data["executions"] else None
         stock = None
+
         if req.sync_stock and ex:
+            # Do not silently swallow a failed retry. A duplicate request is a
+            # legitimate recovery path and its stock-sync state must be explicit.
             stock = _run_stage(
                 "complete.duplicate_stock_sync",
                 lambda: sync_execution(
@@ -233,6 +230,7 @@ def complete_farmer_activity(req):
                     ),
                 ),
             )
+
         return {
             "duplicate": True,
             "activity": _run_stage(
