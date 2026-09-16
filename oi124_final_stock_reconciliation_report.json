@@ -1,0 +1,173 @@
+{
+  "operation": "OI-1.2.4 Final Stock Reconciliation",
+  "actor": "OI-1.2.4-FINAL-STOCK-RECON",
+  "started_at": "2026-09-10T18:55:48.842476+00:00",
+  "transactions": [
+    {
+      "kind": "PURCHASE",
+      "product_code": "FERT-P0017",
+      "status": "CREATED",
+      "transaction_id": "04e3fcc4-b9a2-42a9-8807-9d8ea94121ce",
+      "quantity_in": "180",
+      "quantity_out": "0",
+      "unit": "g",
+      "idempotency_key": "OI-1.2.4:ZINC-PURCHASE-20260904-180G"
+    },
+    {
+      "kind": "PURCHASE",
+      "product_code": "INSECT-EKALUX",
+      "status": "CREATED",
+      "transaction_id": "58b7c0ce-b27f-4c24-a464-4385a37091f6",
+      "quantity_in": "500",
+      "quantity_out": "0",
+      "unit": "ml",
+      "idempotency_key": "OI-1.2.4:EKALUX-PURCHASE-20260904-500ML"
+    },
+    {
+      "kind": "VERIFICATION_ADJUSTMENT",
+      "product_code": "FERT-MFS9271875",
+      "status": "CREATED",
+      "transaction_id": "f483e339-e502-4c14-a2d2-1fe84dd633ae",
+      "quantity_in": "20",
+      "quantity_out": "0",
+      "unit": "g",
+      "idempotency_key": "OI-1.2.4:MFS-OLD-STOCK-CORRECTION-20260910-20G"
+    },
+    {
+      "kind": "USAGE",
+      "product_code": "FERT-AS",
+      "source_reference": "HIST-RECON:TURMERIC-2026-08-29-FERTIGATION",
+      "status": "CREATED_AND_LINKED",
+      "transaction_id": "8dddc8f0-374b-4224-bf8a-7abbd8a3e580",
+      "execution_input_id": "fde4caef-30a4-421b-9160-5c7c5042e467",
+      "quantity_out": "8",
+      "unit": "kg"
+    },
+    {
+      "kind": "USAGE",
+      "product_code": "FERT-SOP",
+      "source_reference": "HIST-RECON:TURMERIC-2026-08-29-FERTIGATION",
+      "status": "CREATED_AND_LINKED",
+      "transaction_id": "e3c3df54-3153-4f4d-a709-5a3d3477ea8c",
+      "execution_input_id": "c1473734-6b89-4dd5-a20b-b34c6cc64c2f",
+      "quantity_out": "5",
+      "unit": "kg"
+    },
+    {
+      "kind": "USAGE",
+      "product_code": "FERT-AS",
+      "source_reference": "HIST-RECON:GINGER-2026-08-29-FERTIGATION",
+      "status": "CREATED_AND_LINKED",
+      "transaction_id": "64e4502e-cb1b-44be-8cc6-97ae291ee71f",
+      "execution_input_id": "9185130b-ad7e-4d44-b55b-6dcb804f6927",
+      "quantity_out": "3",
+      "unit": "kg"
+    },
+    {
+      "kind": "USAGE",
+      "product_code": "FERT-SOP",
+      "source_reference": "HIST-RECON:GINGER-2026-08-29-FERTIGATION",
+      "status": "CREATED_AND_LINKED",
+      "transaction_id": "4e4fb7f5-d8c2-48a7-a39d-471cce04be14",
+      "execution_input_id": "fd6c5ff4-3c40-4b91-85be-35dad49895f8",
+      "quantity_out": "2",
+      "unit": "kg"
+    },
+    {
+      "kind": "USAGE",
+      "product_code": "FERT-P0017",
+      "source_reference": "HIST-RECON:TURMERIC-2026-09-04-SPRAY",
+      "status": "CREATED_AND_LINKED",
+      "transaction_id": "444b11a4-854a-4e27-9e14-0fa0c9ad512b",
+      "execution_input_id": "c0bd365a-d4c0-4bd7-9963-86ed3abbd8ec",
+      "quantity_out": "120",
+      "unit": "g"
+    },
+    {
+      "kind": "USAGE",
+      "product_code": "FERT-P0017",
+      "source_reference": "HIST-RECON:GINGER-2026-09-04-SPRAY",
+      "status": "CREATED_AND_LINKED",
+      "transaction_id": "0a7e592e-295a-4412-bb22-fe59d54165c3",
+      "execution_input_id": "cbf42b5e-1a8b-4bbc-bd70-8ade38610070",
+      "quantity_out": "60",
+      "unit": "g"
+    },
+    {
+      "kind": "USAGE",
+      "product_code": "INSECT-EKALUX",
+      "source_reference": "HIST-RECON:TURMERIC-2026-09-10-SPRAY",
+      "status": "CREATED_AND_LINKED",
+      "transaction_id": "2c74a90d-99c2-4062-ae63-184b943bd9f0",
+      "execution_input_id": "72c7be33-d976-4313-8039-acde776b2954",
+      "quantity_out": "260",
+      "unit": "ml"
+    },
+    {
+      "kind": "USAGE",
+      "product_code": "FERT-MFS9271875",
+      "source_reference": "HIST-RECON:TURMERIC-2026-09-10-SPRAY",
+      "status": "CREATED_AND_LINKED",
+      "transaction_id": "57586a1b-403a-4957-bf8c-99f50bf10edd",
+      "execution_input_id": "09913fbe-086a-4e28-a1d8-6a9be856ddcd",
+      "quantity_out": "220",
+      "unit": "g"
+    }
+  ],
+  "before": {
+    "FERT-AS": {
+      "product_name": "Ammonium Sulphate",
+      "balance": "40.000",
+      "unit": "kg"
+    },
+    "FERT-MFS9271875": {
+      "product_name": "Mahadhan Flowering Special (9:27:18:7.5)",
+      "balance": "200.000",
+      "unit": "g"
+    },
+    "FERT-P0017": {
+      "product_name": "Zinc HEDP 17%",
+      "balance": "0.000",
+      "unit": "g"
+    },
+    "FERT-SOP": {
+      "product_name": "Sulphate of Potash (SOP)",
+      "balance": "17.100",
+      "unit": "kg"
+    },
+    "INSECT-EKALUX": {
+      "product_name": "Ekalux",
+      "balance": "300.000",
+      "unit": "ml"
+    }
+  },
+  "after": {
+    "FERT-AS": {
+      "product_name": "Ammonium Sulphate",
+      "balance": "29.000",
+      "unit": "kg"
+    },
+    "FERT-MFS9271875": {
+      "product_name": "Mahadhan Flowering Special (9:27:18:7.5)",
+      "balance": "0.000",
+      "unit": "g"
+    },
+    "FERT-P0017": {
+      "product_name": "Zinc HEDP 17%",
+      "balance": "0.000",
+      "unit": "g"
+    },
+    "FERT-SOP": {
+      "product_name": "Sulphate of Potash (SOP)",
+      "balance": "10.100",
+      "unit": "kg"
+    },
+    "INSECT-EKALUX": {
+      "product_name": "Ekalux",
+      "balance": "540.000",
+      "unit": "ml"
+    }
+  },
+  "status": "COMPLETE",
+  "completed_at": "2026-09-10T18:56:33.425400+00:00"
+}

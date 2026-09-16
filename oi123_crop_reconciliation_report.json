@@ -1,0 +1,452 @@
+{
+  "mode": "APPLY",
+  "crops": {
+    "Ginger": {
+      "crop_cycle_id": "78771f67-737e-45bf-9ab2-5a5b4a5ba45b",
+      "cycle_code": "CC-2026-GINGER-KAMBLE"
+    },
+    "Turmeric": {
+      "crop_cycle_id": "63a6dbc9-3573-4839-aef1-43969b66979e",
+      "cycle_code": "CC-2026-TURMERIC-NANA"
+    }
+  },
+  "records": [
+    {
+      "crop_name": "Turmeric",
+      "source_record_key": "TURMERIC-2026-08-29-FERTIGATION",
+      "date": "2026-08-29",
+      "activity_status": "ALREADY_PRESENT",
+      "activity_id": "a8061da1-d9e5-48f2-b179-377e6dfe4bcd",
+      "execution_id": "b4576a9a-2353-49a6-8cca-40e58afa9084",
+      "execution_created_on_recovery": false,
+      "resolved_products": [
+        {
+          "requested_aliases": [
+            "Ammonium Sulphate",
+            "Ammonium Sulfate"
+          ],
+          "product_code": "FERT-AS",
+          "product_name": "Ammonium Sulphate",
+          "quantity": "8",
+          "unit": "KG",
+          "historical_unresolved": false,
+          "historical_fully_consumed": false
+        },
+        {
+          "requested_aliases": [
+            "SOP 00:00:50",
+            "00:00:50",
+            "SOP"
+          ],
+          "product_code": "FERT-SOP",
+          "product_name": "Sulphate of Potash (SOP)",
+          "quantity": "5",
+          "unit": "KG",
+          "historical_unresolved": false,
+          "historical_fully_consumed": false
+        }
+      ],
+      "stock_reconciliation": [
+        {
+          "product_code": "FERT-AS",
+          "status": "STOCK_NOT_DEDUCTED",
+          "required_quantity": "8.000",
+          "base_unit": "kg",
+          "reason": "No unique existing USAGE transaction matched exact product/date/quantity"
+        },
+        {
+          "product_code": "FERT-SOP",
+          "status": "STOCK_NOT_DEDUCTED",
+          "required_quantity": "5.000",
+          "base_unit": "kg",
+          "reason": "No unique existing USAGE transaction matched exact product/date/quantity"
+        }
+      ]
+    },
+    {
+      "crop_name": "Turmeric",
+      "source_record_key": "TURMERIC-2026-09-04-SPRAY",
+      "date": "2026-09-04",
+      "activity_status": "ALREADY_PRESENT",
+      "activity_id": "05f9abd3-4e4b-4ba3-a475-8dfb061695af",
+      "execution_id": "2d62745d-8b5e-45a4-9d0d-ca70236fcebd",
+      "execution_created_on_recovery": true,
+      "resolved_products": [
+        {
+          "requested_aliases": [
+            "Score"
+          ],
+          "product_code": "HIST-SCORE-20260904",
+          "product_name": "Score (historical, fully consumed)",
+          "quantity": "100",
+          "unit": "ML",
+          "historical_unresolved": true,
+          "historical_fully_consumed": true
+        },
+        {
+          "requested_aliases": [
+            "Kavach"
+          ],
+          "product_code": "HIST-KAVACH-20260904",
+          "product_name": "Kavach (historical, fully consumed)",
+          "quantity": "250",
+          "unit": "G",
+          "historical_unresolved": true,
+          "historical_fully_consumed": true
+        },
+        {
+          "requested_aliases": [
+            "Zinc HEDP 17%",
+            "Zinc"
+          ],
+          "product_code": "FERT-P0017",
+          "product_name": "Zinc HEDP 17%",
+          "quantity": "120",
+          "unit": "G",
+          "historical_unresolved": false,
+          "historical_fully_consumed": false
+        },
+        {
+          "requested_aliases": [
+            "Apligo"
+          ],
+          "product_code": "HIST-APLIGO-20260904",
+          "product_name": "Apligo (historical, fully consumed)",
+          "quantity": "120",
+          "unit": "G",
+          "historical_unresolved": true,
+          "historical_fully_consumed": true
+        }
+      ],
+      "stock_reconciliation": [
+        {
+          "product_code": "HIST-SCORE-20260904",
+          "product_name": "Score (historical, fully consumed)",
+          "status": "HISTORICAL_FULLY_CONSUMED_NO_NEW_DEDUCTION",
+          "quantity": "100",
+          "unit": "ML",
+          "reason": "Confirmed purchased-and-fully-consumed historical input; preserved in Activity History via inactive historical identity. No stock transaction created."
+        },
+        {
+          "product_code": "HIST-KAVACH-20260904",
+          "product_name": "Kavach (historical, fully consumed)",
+          "status": "HISTORICAL_FULLY_CONSUMED_NO_NEW_DEDUCTION",
+          "quantity": "250",
+          "unit": "G",
+          "reason": "Confirmed purchased-and-fully-consumed historical input; preserved in Activity History via inactive historical identity. No stock transaction created."
+        },
+        {
+          "product_code": "FERT-P0017",
+          "status": "STOCK_NOT_DEDUCTED",
+          "required_quantity": "120.000",
+          "base_unit": "g",
+          "reason": "No unique existing USAGE transaction matched exact product/date/quantity"
+        },
+        {
+          "product_code": "HIST-APLIGO-20260904",
+          "product_name": "Apligo (historical, fully consumed)",
+          "status": "HISTORICAL_FULLY_CONSUMED_NO_NEW_DEDUCTION",
+          "quantity": "120",
+          "unit": "G",
+          "reason": "Confirmed purchased-and-fully-consumed historical input; preserved in Activity History via inactive historical identity. No stock transaction created."
+        }
+      ]
+    },
+    {
+      "crop_name": "Turmeric",
+      "source_record_key": "TURMERIC-2026-09-10-SPRAY",
+      "date": "2026-09-10",
+      "activity_status": "IMPORTED",
+      "activity_id": "54579d8d-adbf-405a-b24a-5ca44c7283ec",
+      "execution_id": "e5584169-fe36-4c2c-9808-5f12e2c0eb24",
+      "execution_created_on_recovery": false,
+      "resolved_products": [
+        {
+          "requested_aliases": [
+            "Ekalux"
+          ],
+          "product_code": "INSECT-EKALUX",
+          "product_name": "Ekalux",
+          "quantity": "260",
+          "unit": "ML",
+          "historical_unresolved": false,
+          "historical_fully_consumed": false
+        },
+        {
+          "requested_aliases": [
+            "Mahadhan Flowering Special",
+            "Mahadhan Flowering"
+          ],
+          "product_code": "FERT-MFS9271875",
+          "product_name": "Mahadhan Flowering Special (9:27:18:7.5)",
+          "quantity": "220",
+          "unit": "G",
+          "historical_unresolved": false,
+          "historical_fully_consumed": false
+        },
+        {
+          "requested_aliases": [
+            "Protin M",
+            "Protein M"
+          ],
+          "product_code": "HIST-PROTIN-M-20260910",
+          "product_name": "Protin M (historical, fully consumed)",
+          "quantity": "250",
+          "unit": "G",
+          "historical_unresolved": true,
+          "historical_fully_consumed": true
+        },
+        {
+          "requested_aliases": [
+            "Natural Green Chelated Micronutrient",
+            "Natural Green"
+          ],
+          "product_code": "HIST-NATURAL-GREEN-CHELATED-MICRONUTRIENT-20260910",
+          "product_name": "Natural Green Chelated Micronutrient (historical, fully consumed)",
+          "quantity": "250",
+          "unit": "G",
+          "historical_unresolved": true,
+          "historical_fully_consumed": true
+        }
+      ],
+      "stock_reconciliation": [
+        {
+          "product_code": "INSECT-EKALUX",
+          "status": "STOCK_NOT_DEDUCTED",
+          "required_quantity": "260.000",
+          "base_unit": "ml",
+          "reason": "No unique existing USAGE transaction matched exact product/date/quantity"
+        },
+        {
+          "product_code": "FERT-MFS9271875",
+          "status": "STOCK_NOT_DEDUCTED",
+          "required_quantity": "220.000",
+          "base_unit": "g",
+          "reason": "No unique existing USAGE transaction matched exact product/date/quantity"
+        },
+        {
+          "product_code": "HIST-PROTIN-M-20260910",
+          "product_name": "Protin M (historical, fully consumed)",
+          "status": "HISTORICAL_FULLY_CONSUMED_NO_NEW_DEDUCTION",
+          "quantity": "250",
+          "unit": "G",
+          "reason": "Confirmed purchased-and-fully-consumed historical input; preserved in Activity History via inactive historical identity. No stock transaction created."
+        },
+        {
+          "product_code": "HIST-NATURAL-GREEN-CHELATED-MICRONUTRIENT-20260910",
+          "product_name": "Natural Green Chelated Micronutrient (historical, fully consumed)",
+          "status": "HISTORICAL_FULLY_CONSUMED_NO_NEW_DEDUCTION",
+          "quantity": "250",
+          "unit": "G",
+          "reason": "Confirmed purchased-and-fully-consumed historical input; preserved in Activity History via inactive historical identity. No stock transaction created."
+        }
+      ]
+    },
+    {
+      "crop_name": "Ginger",
+      "source_record_key": "GINGER-2026-08-29-FERTIGATION",
+      "date": "2026-08-29",
+      "activity_status": "IMPORTED",
+      "activity_id": "efe0322c-610c-4119-8ad1-ad67a6338613",
+      "execution_id": "af4b2d14-9cc9-4dfb-a7fc-14a19fda508f",
+      "execution_created_on_recovery": false,
+      "resolved_products": [
+        {
+          "requested_aliases": [
+            "Ammonium Sulphate",
+            "Ammonium Sulfate"
+          ],
+          "product_code": "FERT-AS",
+          "product_name": "Ammonium Sulphate",
+          "quantity": "3",
+          "unit": "KG",
+          "historical_unresolved": false,
+          "historical_fully_consumed": false
+        },
+        {
+          "requested_aliases": [
+            "SOP 00:00:50",
+            "00:00:50",
+            "SOP"
+          ],
+          "product_code": "FERT-SOP",
+          "product_name": "Sulphate of Potash (SOP)",
+          "quantity": "2",
+          "unit": "KG",
+          "historical_unresolved": false,
+          "historical_fully_consumed": false
+        }
+      ],
+      "stock_reconciliation": [
+        {
+          "product_code": "FERT-AS",
+          "status": "STOCK_NOT_DEDUCTED",
+          "required_quantity": "3.000",
+          "base_unit": "kg",
+          "reason": "No unique existing USAGE transaction matched exact product/date/quantity"
+        },
+        {
+          "product_code": "FERT-SOP",
+          "status": "STOCK_NOT_DEDUCTED",
+          "required_quantity": "2.000",
+          "base_unit": "kg",
+          "reason": "No unique existing USAGE transaction matched exact product/date/quantity"
+        }
+      ]
+    },
+    {
+      "crop_name": "Ginger",
+      "source_record_key": "GINGER-2026-09-04-SPRAY",
+      "date": "2026-09-04",
+      "activity_status": "IMPORTED",
+      "activity_id": "d7a8f55a-0f74-40a9-b110-8f344e41d26f",
+      "execution_id": "52c01235-88f5-499e-80cf-9383eda1a21b",
+      "execution_created_on_recovery": false,
+      "resolved_products": [
+        {
+          "requested_aliases": [
+            "Score"
+          ],
+          "product_code": "HIST-SCORE-20260904",
+          "product_name": "Score (historical, fully consumed)",
+          "quantity": "30",
+          "unit": "ML",
+          "historical_unresolved": true,
+          "historical_fully_consumed": true
+        },
+        {
+          "requested_aliases": [
+            "Kavach"
+          ],
+          "product_code": "HIST-KAVACH-20260904",
+          "product_name": "Kavach (historical, fully consumed)",
+          "quantity": "60",
+          "unit": "G",
+          "historical_unresolved": true,
+          "historical_fully_consumed": true
+        },
+        {
+          "requested_aliases": [
+            "Zinc HEDP 17%",
+            "Zinc"
+          ],
+          "product_code": "FERT-P0017",
+          "product_name": "Zinc HEDP 17%",
+          "quantity": "60",
+          "unit": "G",
+          "historical_unresolved": false,
+          "historical_fully_consumed": false
+        },
+        {
+          "requested_aliases": [
+            "Apligo"
+          ],
+          "product_code": "HIST-APLIGO-20260904",
+          "product_name": "Apligo (historical, fully consumed)",
+          "quantity": "40",
+          "unit": "G",
+          "historical_unresolved": true,
+          "historical_fully_consumed": true
+        }
+      ],
+      "stock_reconciliation": [
+        {
+          "product_code": "HIST-SCORE-20260904",
+          "product_name": "Score (historical, fully consumed)",
+          "status": "HISTORICAL_FULLY_CONSUMED_NO_NEW_DEDUCTION",
+          "quantity": "30",
+          "unit": "ML",
+          "reason": "Confirmed purchased-and-fully-consumed historical input; preserved in Activity History via inactive historical identity. No stock transaction created."
+        },
+        {
+          "product_code": "HIST-KAVACH-20260904",
+          "product_name": "Kavach (historical, fully consumed)",
+          "status": "HISTORICAL_FULLY_CONSUMED_NO_NEW_DEDUCTION",
+          "quantity": "60",
+          "unit": "G",
+          "reason": "Confirmed purchased-and-fully-consumed historical input; preserved in Activity History via inactive historical identity. No stock transaction created."
+        },
+        {
+          "product_code": "FERT-P0017",
+          "status": "STOCK_NOT_DEDUCTED",
+          "required_quantity": "60.000",
+          "base_unit": "g",
+          "reason": "No unique existing USAGE transaction matched exact product/date/quantity"
+        },
+        {
+          "product_code": "HIST-APLIGO-20260904",
+          "product_name": "Apligo (historical, fully consumed)",
+          "status": "HISTORICAL_FULLY_CONSUMED_NO_NEW_DEDUCTION",
+          "quantity": "40",
+          "unit": "G",
+          "reason": "Confirmed purchased-and-fully-consumed historical input; preserved in Activity History via inactive historical identity. No stock transaction created."
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "reused_stock_transaction_links": [],
+    "no_reused_stock_transaction_links": true,
+    "history_rows_by_crop": {
+      "Ginger": [
+        {
+          "execution_date": "2026-08-29",
+          "activity_type_code": "FERTIGATION",
+          "activity_id": "efe0322c-610c-4119-8ad1-ad67a6338613",
+          "execution_id": "af4b2d14-9cc9-4dfb-a7fc-14a19fda508f",
+          "source_type": "IMPORT",
+          "source_reference": "HIST-RECON:GINGER-2026-08-29-FERTIGATION",
+          "execution_status": "COMPLETED",
+          "input_count": 2,
+          "linked_stock_count": 0
+        },
+        {
+          "execution_date": "2026-09-04",
+          "activity_type_code": "SPRAY",
+          "activity_id": "d7a8f55a-0f74-40a9-b110-8f344e41d26f",
+          "execution_id": "52c01235-88f5-499e-80cf-9383eda1a21b",
+          "source_type": "IMPORT",
+          "source_reference": "HIST-RECON:GINGER-2026-09-04-SPRAY",
+          "execution_status": "COMPLETED",
+          "input_count": 4,
+          "linked_stock_count": 0
+        }
+      ],
+      "Turmeric": [
+        {
+          "execution_date": "2026-08-29",
+          "activity_type_code": "FERTIGATION",
+          "activity_id": "a8061da1-d9e5-48f2-b179-377e6dfe4bcd",
+          "execution_id": "b4576a9a-2353-49a6-8cca-40e58afa9084",
+          "source_type": "IMPORT",
+          "source_reference": "HIST-RECON:TURMERIC-2026-08-29-FERTIGATION",
+          "execution_status": "COMPLETED",
+          "input_count": 2,
+          "linked_stock_count": 0
+        },
+        {
+          "execution_date": "2026-09-04",
+          "activity_type_code": "SPRAY",
+          "activity_id": "05f9abd3-4e4b-4ba3-a475-8dfb061695af",
+          "execution_id": "2d62745d-8b5e-45a4-9d0d-ca70236fcebd",
+          "source_type": "IMPORT",
+          "source_reference": "HIST-RECON:TURMERIC-2026-09-04-SPRAY",
+          "execution_status": "COMPLETED",
+          "input_count": 4,
+          "linked_stock_count": 0
+        },
+        {
+          "execution_date": "2026-09-10",
+          "activity_type_code": "SPRAY",
+          "activity_id": "54579d8d-adbf-405a-b24a-5ca44c7283ec",
+          "execution_id": "e5584169-fe36-4c2c-9808-5f12e2c0eb24",
+          "source_type": "IMPORT",
+          "source_reference": "HIST-RECON:TURMERIC-2026-09-10-SPRAY",
+          "execution_status": "COMPLETED",
+          "input_count": 4,
+          "linked_stock_count": 0
+        }
+      ]
+    }
+  }
+}

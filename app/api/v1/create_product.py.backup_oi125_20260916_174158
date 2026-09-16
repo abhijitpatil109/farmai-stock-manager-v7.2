@@ -1,19 +1,31 @@
 """
-FarmAI Stock Manager V7.2.3 - OI-1.2.5 Create Product API
+FarmAI Stock Manager V7.2 - B3.5 Production Create Product API
 
 POST /api/v1/products
 
-OI-1.2.5 guarantees
--------------------
-- Accepts the frozen V7.2.3 canonical 8-category taxonomy.
-- Accepts legacy category labels as input aliases but always stores the
-  canonical V7.2.3 category.
-- Product-code sequencing counts canonical + legacy-equivalent records so
-  existing products remain collision-safe.
-- Maps request.content to products.composition_text when that is the live DB
-  column; supports legacy `content` column if present.
-- Product creation adds NO stock. Purchase is a separate authoritative ledger
-  operation through POST /api/v1/inventory/purchases/batch.
+Canonical product code policy
+-----------------------------
+Backend-generated codes use a dedicated production namespace:
+
+    FERT-P0017
+    FERT-P0018
+    MIC-P0009
+
+Numbering rule
+--------------
+1. Count ALL products already present in the selected category, including
+   legacy/manual/inactive records.
+2. Initial candidate number = category_count + 1.
+3. Generate PREFIX-P####.
+4. If that candidate code already exists, increment until a free code is found.
+5. Product creation is serialized with a PostgreSQL table lock so concurrent
+   requests cannot allocate the same code.
+
+Examples:
+- Fertilizers currently has 16 products -> next generated code = FERT-P0017
+- Micronutrients currently has 8 products -> next generated code = MIC-P0009
+
+Product creation adds NO stock. Purchase/opening balance/verification is separate.
 """
 
 from __future__ import annotations
@@ -35,45 +47,29 @@ router = APIRouter(
 )
 
 
-CANONICAL_CATEGORIES = {
+ALLOWED_CATEGORIES = {
     "Fertilizers",
-    "Biostimulants & Biofertilizers",
+    "Biostimulants & Growth Promoters",
     "Micronutrients",
     "Fungicides",
     "Insecticides",
     "Herbicides",
-    "Biopesticides",
+    "Bio-fertilizers & Bio-pesticides",
     "Adjuvants / Stickers",
-}
-
-# Input compatibility only. New rows are always stored with canonical labels.
-CATEGORY_ALIASES = {
-    "Biostimulants & Growth Promoters": "Biostimulants & Biofertilizers",
-    "Biostimulants": "Biostimulants & Biofertilizers",
-    "Bio-fertilizers & Bio-pesticides": "Biopesticides",
-    "Biofertilizers & Biopesticides": "Biopesticides",
 }
 
 ALLOWED_BASE_UNITS = {"kg", "g", "L", "ml"}
 
 CATEGORY_PREFIX = {
     "Fertilizers": "FERT",
-    "Biostimulants & Biofertilizers": "BST",
+    "Biostimulants & Growth Promoters": "BST",
     "Micronutrients": "MIC",
     "Fungicides": "FUNG",
     "Insecticides": "INS",
     "Herbicides": "HERB",
-    "Biopesticides": "BIO",
+    "Bio-fertilizers & Bio-pesticides": "BIO",
     "Adjuvants / Stickers": "ADJ",
 }
-
-# Existing rows may still carry legacy labels. Count them in the same sequence
-# namespace when allocating the next code.
-CATEGORY_EQUIVALENTS = {
-    canonical: {canonical} for canonical in CANONICAL_CATEGORIES
-}
-for legacy, canonical in CATEGORY_ALIASES.items():
-    CATEGORY_EQUIVALENTS[canonical].add(legacy)
 
 
 class CreateProductRequest(BaseModel):
@@ -112,12 +108,6 @@ def _error(status_code: int, code: str, message: str, details=None):
             )
         ),
     )
-
-
-def _canonical_category(value: str) -> str | None:
-    if value in CANONICAL_CATEGORIES:
-        return value
-    return CATEGORY_ALIASES.get(value)
 
 
 def _existing_by_name_brand(conn, product_name: str, brand: str | None):
@@ -161,21 +151,23 @@ def _product_code_exists(conn, product_code: str) -> bool:
     return row is not None
 
 
-def generate_product_code(conn, canonical_category: str) -> tuple[str, int, int]:
+def generate_product_code(conn, category: str) -> tuple[str, int, int]:
     """
-    Allocate a category-sequential code while treating legacy category labels
-    as members of the same canonical V7.2.3 sequence namespace.
+    Generate a category-sequential canonical code based on the actual number
+    of products already present in that category.
+
+    Returns:
+        (product_code, category_count_before_create, allocated_sequence_number)
     """
-    prefix = CATEGORY_PREFIX[canonical_category]
-    equivalents = sorted(CATEGORY_EQUIVALENTS[canonical_category])
+    prefix = CATEGORY_PREFIX[category]
 
     row = conn.execute(
         """
         SELECT COUNT(*) AS product_count
         FROM products
-        WHERE category = ANY(%s)
+        WHERE category=%s
         """,
-        (equivalents,),
+        (category,),
     ).fetchone()
 
     category_count = int(row["product_count"] or 0)
@@ -183,7 +175,7 @@ def generate_product_code(conn, canonical_category: str) -> tuple[str, int, int]
 
     if next_number > 9999:
         raise ValueError(
-            f"Product-code namespace exhausted for category '{canonical_category}'."
+            f"Product-code namespace exhausted for category '{category}'."
         )
 
     while next_number <= 9999:
@@ -195,7 +187,7 @@ def generate_product_code(conn, canonical_category: str) -> tuple[str, int, int]
         next_number += 1
 
     raise ValueError(
-        f"Product-code namespace exhausted for category '{canonical_category}'."
+        f"Product-code namespace exhausted for category '{category}'."
     )
 
 
@@ -204,24 +196,22 @@ def generate_product_code(conn, canonical_category: str) -> tuple[str, int, int]
     operation_id="createProduct",
     summary="Create a new canonical FarmAI product",
     description=(
-        "Creates a product-master record only. Accepts canonical V7.2.3 "
-        "categories plus legacy aliases, stores the canonical category, and "
-        "allocates the next collision-safe category product code. "
-        "This operation does not add stock."
+        "Creates a product-master record only. The backend counts existing "
+        "products in the selected category and generates the next canonical "
+        "category-sequence product code. This operation does not add stock."
     ),
 )
 def create_product(req: CreateProductRequest):
-    canonical_category = _canonical_category(req.category)
 
-    if canonical_category is None:
+    if req.category not in ALLOWED_CATEGORIES:
         return _error(
             422,
             "INVALID_CATEGORY",
-            "Category must match the FarmAI Stock Registry V7.2.3 taxonomy.",
-            {
-                "allowed_categories": sorted(CANONICAL_CATEGORIES),
-                "accepted_legacy_aliases": CATEGORY_ALIASES,
-            },
+            (
+                "Category must match one of the eight "
+                "FarmAI Stock Registry V6.3 categories."
+            ),
+            {"allowed_categories": sorted(ALLOWED_CATEGORIES)},
         )
 
     if req.base_unit not in ALLOWED_BASE_UNITS:
@@ -236,7 +226,9 @@ def create_product(req: CreateProductRequest):
         try:
             # Serialize product creation so concurrent requests cannot allocate
             # the same category-sequence code.
-            conn.execute("LOCK TABLE products IN SHARE ROW EXCLUSIVE MODE")
+            conn.execute(
+                "LOCK TABLE products IN SHARE ROW EXCLUSIVE MODE"
+            )
 
             by_name = _existing_by_name_brand(
                 conn,
@@ -250,12 +242,14 @@ def create_product(req: CreateProductRequest):
                 return _error(
                     409,
                     "PRODUCT_ALREADY_EXISTS",
-                    "An active product with the same name and brand already exists.",
+                    (
+                        "An active product with the same "
+                        "name and brand already exists."
+                    ),
                     {
                         "product_code": by_name["product_code"],
                         "product_name": by_name["product_name"],
                         "brand": by_name.get("brand"),
-                        "category": by_name.get("category"),
                     },
                 )
 
@@ -263,27 +257,24 @@ def create_product(req: CreateProductRequest):
                 product_code,
                 category_count_before,
                 allocated_sequence_number,
-            ) = generate_product_code(conn, canonical_category)
+            ) = generate_product_code(
+                conn,
+                req.category,
+            )
 
             available_columns = _column_names(conn)
 
             payload = {
                 "product_code": product_code,
                 "product_name": req.product_name,
-                "category": canonical_category,
+                "category": req.category,
                 "base_unit": req.base_unit,
                 "brand": req.brand,
+                "content": req.content,
                 "primary_function": req.primary_function,
                 "notes": req.notes,
                 "active": req.active,
             }
-
-            # Current FarmAI products schema uses composition_text. Keep
-            # compatibility with a legacy `content` column if encountered.
-            if "composition_text" in available_columns:
-                payload["composition_text"] = req.content
-            elif "content" in available_columns:
-                payload["content"] = req.content
 
             insert_payload = {
                 key: value
@@ -306,7 +297,10 @@ def create_product(req: CreateProductRequest):
                 return _error(
                     500,
                     "PRODUCT_SCHEMA_MISMATCH",
-                    "The products table is missing fields required by the create-product API.",
+                    (
+                        "The products table is missing "
+                        "fields required by the B3.5 API."
+                    ),
                     {"missing_columns": sorted(missing)},
                 )
 
@@ -320,7 +314,10 @@ def create_product(req: CreateProductRequest):
 
             row = conn.execute(
                 sql,
-                tuple(insert_payload[column] for column in columns),
+                tuple(
+                    insert_payload[column]
+                    for column in columns
+                ),
             ).fetchone()
 
             conn.commit()
@@ -330,14 +327,13 @@ def create_product(req: CreateProductRequest):
                     "created": True,
                     "product": row,
                     "product_code": row["product_code"],
-                    "canonical_category": canonical_category,
-                    "submitted_category": req.category,
                     "category_product_count_before_create": category_count_before,
                     "allocated_sequence_number": allocated_sequence_number,
                     "initial_stock": 0,
                     "message": (
-                        "Product created in the canonical V7.2.3 Product Master. "
-                        "No stock movement was created; record purchase separately."
+                        "Product created in the master using the next "
+                        "category-sequence canonical code. "
+                        "No stock movement was created."
                     ),
                 },
                 meta={"source": "postgresql.products"},
