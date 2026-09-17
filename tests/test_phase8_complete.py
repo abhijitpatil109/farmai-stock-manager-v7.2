@@ -4,7 +4,7 @@ from app.services import external_weather as w
 from app.schemas.weather_intelligence import OperationalWeatherCheckRequest
 
 class Phase8CompletePureTests(unittest.TestCase):
- def test_engine_version(self):self.assertEqual(w.ENGINE_VERSION,"8.4.0")
+ def test_engine_version(self):self.assertEqual(w.ENGINE_VERSION,"8.4.1")
  def test_two_ensemble_families(self):self.assertEqual(set(w.ENSEMBLE_MODELS),{"ECMWF_ENS","GEFS"})
  def test_probability_not_deterministic_alias(self):
   self.assertNotIn("probability", "deterministic_rain_support_pct")

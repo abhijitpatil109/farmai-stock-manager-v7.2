@@ -92,7 +92,7 @@ def build_focused_schema():
         "openapi": "3.1.0",
         "info": {
             "title": "FarmAI GPT Operational Actions",
-            "version": "OI-1.3.0",
+            "version": "OI-1.3.1",
             "description": (
                 "Focused FarmAI Action surface for authoritative stock, activity, "
                 "purchase, crop decision and geotag-resolved spray-window workflows."

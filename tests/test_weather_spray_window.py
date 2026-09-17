@@ -6,6 +6,7 @@ from app.schemas.weather_intelligence import SprayWindowConsultRequest
 from app.services.external_weather import (
     _evaluate_spray_candidate,
     _non_overlapping_ranked,
+    _select_active_farm,
 )
 
 
@@ -95,6 +96,47 @@ class SprayWindowRankingTests(unittest.TestCase):
             candidate(9, "SAFE", 8.0),
         ])
         self.assertEqual([x["start"].hour for x in ranked], [7, 9])
+
+
+class FarmIdentityResolutionTests(unittest.TestCase):
+    def farms(self):
+        return [
+            {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "name_en": "Bendri Farm",
+                "name_mr": "बेंद्री",
+                "active": True,
+            }
+        ]
+
+    def test_farm_id_takes_priority_over_display_name(self):
+        farm, mode = _select_active_farm(
+            self.farms(),
+            farm_id="11111111-1111-1111-1111-111111111111",
+            farm_name="Bendri",
+        )
+        self.assertEqual(farm["name_en"], "Bendri Farm")
+        self.assertEqual(mode, "FARM_ID")
+
+    def test_unique_normalized_name_accepts_bendri_alias(self):
+        farm, mode = _select_active_farm(self.farms(), farm_name=" Bendri ")
+        self.assertEqual(farm["name_mr"], "बेंद्री")
+        self.assertEqual(mode, "UNIQUE_NORMALIZED_NAME")
+
+    def test_single_active_farm_is_safe_fallback(self):
+        farm, mode = _select_active_farm(self.farms(), farm_name="Our farm")
+        self.assertEqual(farm["id"], "11111111-1111-1111-1111-111111111111")
+        self.assertEqual(mode, "SINGLE_ACTIVE_FARM_FALLBACK")
+
+    def test_multiple_active_farms_never_use_unsafe_fallback(self):
+        farms = self.farms() + [{
+            "id": "22222222-2222-2222-2222-222222222222",
+            "name_en": "Other Farm",
+            "name_mr": "दुसरे शेत",
+            "active": True,
+        }]
+        with self.assertRaises(Exception):
+            _select_active_farm(farms, farm_name="Unknown")
 
 
 if __name__ == "__main__":

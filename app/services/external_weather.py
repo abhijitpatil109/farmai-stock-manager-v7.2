@@ -1,5 +1,5 @@
 from __future__ import annotations
-import hashlib, json, math, random, time
+import hashlib, json, math, random, re, time, unicodedata
 from datetime import datetime, timedelta, timezone
 from statistics import median
 from urllib.parse import urlencode
@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from ..db import connection
 from .activity_register import ActivityRegisterNotFound, ActivityRegisterValidation
 
-ENGINE_VERSION="8.4.0"
+ENGINE_VERSION="8.4.1"
 PROVIDER_CODE="OPEN_METEO"
 DETERMINISTIC_ENDPOINTS={
  "ECMWF_IFS":"https://api.open-meteo.com/v1/ecmwf",
@@ -59,6 +59,47 @@ def _location(c,farm_id,plot_id=None):
  row=c.execute("SELECT * FROM weather_locations WHERE farm_id=%s AND plot_id IS NULL AND active=true",(farm_id,)).fetchone()
  if not row: raise ActivityRegisterValidation("Weather location is not configured for this farm.")
  return row
+
+def _normalize_identity(value):
+ if value is None:return ""
+ text=unicodedata.normalize("NFKC",str(value)).casefold()
+ text=re.sub(r"[\(\)\[\]\{\},._/\\-]+"," ",text)
+ return " ".join(text.split())
+
+def _select_active_farm(rows,farm_id=None,farm_name=None):
+ farms=[dict(row) for row in rows]
+ if farm_id:
+  matches=[farm for farm in farms if str(farm.get("id"))==str(farm_id)]
+  if not matches:raise ActivityRegisterNotFound("Active farm not found from the supplied farm_id.")
+  return matches[0],"FARM_ID"
+
+ if farm_name:
+  wanted=_normalize_identity(farm_name)
+  exact=[];compatible=[]
+  wanted_tokens=set(wanted.split())-{"farm","field","plot"}
+  for farm in farms:
+   labels={
+    _normalize_identity(farm.get("name_en")),
+    _normalize_identity(farm.get("name_mr")),
+    _normalize_identity(farm.get("code")),
+    _normalize_identity(farm.get("farm_code")),
+    _normalize_identity(f"{farm.get('name_en') or ''} {farm.get('name_mr') or ''}"),
+   }-{""}
+   if wanted in labels:exact.append(farm);continue
+   if wanted_tokens and any(wanted_tokens<=set(label.split()) for label in labels):
+    compatible.append(farm)
+  if len(exact)==1:return exact[0],"EXACT_NAME"
+  if len(exact)>1:
+   raise ActivityRegisterValidation("Farm name is ambiguous; supply farm_id.")
+  if len(compatible)==1:return compatible[0],"UNIQUE_NORMALIZED_NAME"
+  if len(compatible)>1:
+   raise ActivityRegisterValidation("Farm name is ambiguous after normalization; supply farm_id.")
+
+ if len(farms)==1:return farms[0],"SINGLE_ACTIVE_FARM_FALLBACK"
+ if not farms:raise ActivityRegisterNotFound("No active farm is configured.")
+ if farm_name:
+  raise ActivityRegisterNotFound("Active farm not found from the supplied identity; multiple active farms prevent a safe fallback.")
+ raise ActivityRegisterValidation("Farm is ambiguous; supply farm_id or the exact stored farm name.")
 
 def upsert_location(req):
  with connection() as c:
@@ -306,20 +347,9 @@ def operational_check(req):
 
 def _resolve_spray_window_target(req):
  with connection() as c:
-  farm_clauses=["active=true"];farm_params=[]
-  if req.farm_id:
-   farm_clauses.append("id=%s");farm_params.append(req.farm_id)
-  if req.farm_name:
-   farm_clauses.append("(lower(name_en)=lower(%s) OR name_mr=%s)")
-   farm_params.extend([req.farm_name,req.farm_name])
-  farms=c.execute(
-   "SELECT * FROM farms WHERE "+" AND ".join(farm_clauses)+" ORDER BY created_at",
-   tuple(farm_params),
-  ).fetchall()
-  if not farms:raise ActivityRegisterNotFound("Active farm not found from the supplied identity.")
-  if len(farms)!=1:
-   raise ActivityRegisterValidation("Farm is ambiguous; supply farm_id or the exact stored farm name.")
-  farm=dict(farms[0])
+  farms=c.execute("SELECT * FROM farms WHERE active=true ORDER BY created_at").fetchall()
+  farm,farm_resolution=_select_active_farm(farms,req.farm_id,req.farm_name)
+  farm["_identity_resolution"]=farm_resolution
 
   plot=None
   if req.plot_id or req.plot_name:
@@ -479,6 +509,7 @@ def spray_window_consultation(req):
   "target_date":target,
   "resolved_context":{
    "farm_id":str(farm["id"]),"farm_name_en":farm.get("name_en"),"farm_name_mr":farm.get("name_mr"),
+   "farm_identity_resolution":farm.get("_identity_resolution"),
    "plot_id":str(plot["id"]) if plot else None,"plot_code":plot.get("code") if plot else None,
    "plot_name_en":plot.get("name_en") if plot else None,"plot_name_mr":plot.get("name_mr") if plot else None,
    "crop_cycle_id":str(cycle["id"]) if cycle else None,"crop_name_en":cycle.get("crop_name_en") if cycle else None,

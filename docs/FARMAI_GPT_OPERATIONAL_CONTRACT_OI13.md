@@ -1,6 +1,6 @@
-# FarmAI GPT Operational Contract — OI-1.3
+# FarmAI GPT Operational Contract — OI-1.3.1
 
-OI-1.3 preserves the OI-1.2 stock/activity contract and adds one mandatory
+OI-1.3.1 preserves the OI-1.2 stock/activity contract and adds one mandatory
 geotag-resolved weather workflow.
 
 ## New GPT-facing operation
@@ -42,6 +42,9 @@ pesticide, fungicide, fertilizer or tank mix.
   stored master data.
 - Multiple active crop cycles with the same crop name require `plot_name` or
   `crop_cycle_id`.
+- A supplied `farm_id` is authoritative even when an accompanying display name
+  differs. Unique normalized names are accepted. The single-active-farm fallback
+  is reported as `farm_identity_resolution` and is never used with multiple farms.
 - Plot weather location is preferred. Farm default weather location is the
   defined fallback.
 
