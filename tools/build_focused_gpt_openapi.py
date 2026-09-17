@@ -39,6 +39,31 @@ SELECTED_OPERATION_IDS = {
 HTTP_METHODS = {"get", "post", "put", "patch", "delete", "options", "head", "trace"}
 
 
+def prepare_history_action(operation):
+    """Represent absence by omission, not a null URL query parameter."""
+    hints = {
+        "crop_cycle_id": "Only a known stored UUID. Omit when using crop_name; never invent an ID.",
+        "crop_name": "Canonical crop name, e.g. Turmeric. Use the crop named by the user.",
+        "date_from": "Optional inclusive YYYY-MM-DD start. Omit unless a date range is requested.",
+        "date_to": "Optional inclusive YYYY-MM-DD end. Omit unless a date range is requested.",
+        "execution_status": "Omit for all statuses. Otherwise use one of the listed execution codes.",
+        "limit": "Maximum returned rows; keep the default for full history. A row limit is not pagination.",
+    }
+    for parameter in operation.get("parameters", []):
+        if parameter.get("in") != "query" or parameter.get("required"):
+            continue
+        schema = parameter.get("schema", {})
+        variants = schema.get("anyOf", [])
+        concrete = [s for s in variants if s.get("type") != "null"]
+        if len(concrete) == 1 and len(variants) == 2:
+            parameter["schema"] = {
+                **{k: v for k, v in schema.items() if k not in {"anyOf", "default"}},
+                **concrete[0],
+            }
+        parameter["description"] = hints[parameter["name"]]
+    return operation
+
+
 def _schema_names(value):
     names = set()
     if isinstance(value, dict):
@@ -66,6 +91,8 @@ def build_focused_schema():
             operation_id = operation.get("operationId")
             if operation_id in SELECTED_OPERATION_IDS:
                 selected[method] = copy.deepcopy(operation)
+                if operation_id == "getOperationalActivityHistory":
+                    prepare_history_action(selected[method])
                 found.add(operation_id)
         if selected:
             paths[path] = selected
@@ -92,7 +119,7 @@ def build_focused_schema():
         "openapi": "3.1.0",
         "info": {
             "title": "FarmAI GPT Operational Actions",
-            "version": "OI-1.3.1",
+            "version": "OI-1.3.2",
             "description": (
                 "Focused FarmAI Action surface for authoritative stock, activity, "
                 "purchase, crop decision and geotag-resolved spray-window workflows."

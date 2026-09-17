@@ -14,6 +14,7 @@ from ...core.security import require_api_key
 from ...schemas.activity_farmer_entry import FarmerActivityEntry
 from ...schemas.operational_integration import OperationalActivityCompleteRequest
 from ...schemas.weather_intelligence import SprayWindowConsultRequest
+from ...schemas.history_query import HistoryCycleId, HistoryDate, HistoryCropName, HistoryStatus
 from ...services.operational_integration import (
     CONTRACT_VERSION,
     operational_health,
@@ -133,17 +134,18 @@ def stock():
     operation_id="getOperationalActivityHistory",
     summary="Get authoritative FarmAI activity history",
     description=(
-        "Authoritative GPT-facing Activity History. Reads Activity + Execution + "
-        "purpose + products + linked Stock transactions. Use this for latest/history "
-        "questions after crop-use stock deductions."
+        "Read authoritative crop activity history, products and stock links. "
+        "For Turmeric history send crop_name=Turmeric; omit unused IDs, dates and "
+        "status. Never send empty or null filters. For HTTP 422 correct the named "
+        "parameter before retrying; report other errors with their incident ID."
     ),
 )
 def activity_history(
-    crop_cycle_id: UUID | None = None,
-    crop_name: str | None = None,
-    date_from: date | None = None,
-    date_to: date | None = None,
-    execution_status: str | None = None,
+    crop_cycle_id: HistoryCycleId = None,
+    crop_name: HistoryCropName = None,
+    date_from: HistoryDate = None,
+    date_to: HistoryDate = None,
+    execution_status: HistoryStatus = None,
     limit: int = Query(default=200, ge=1, le=500),
 ):
     try:

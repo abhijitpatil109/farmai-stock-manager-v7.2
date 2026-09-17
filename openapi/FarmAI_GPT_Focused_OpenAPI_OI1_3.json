@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "FarmAI GPT Operational Actions",
-    "version": "OI-1.3.1",
+    "version": "OI-1.3.2",
     "description": "Focused FarmAI Action surface for authoritative stock, activity, purchase, crop decision and geotag-resolved spray-window workflows."
   },
   "servers": [
@@ -502,7 +502,7 @@
           "FarmAI ChatGPT Operational Integration"
         ],
         "summary": "Get authoritative FarmAI activity history",
-        "description": "Authoritative GPT-facing Activity History. Reads Activity + Execution + purpose + products + linked Stock transactions. Use this for latest/history questions after crop-use stock deductions.",
+        "description": "Read authoritative crop activity history, products and stock links. For Turmeric history send crop_name=Turmeric; omit unused IDs, dates and status. Never send empty or null filters. For HTTP 422 correct the named parameter before retrying; report other errors with their incident ID.",
         "operationId": "getOperationalActivityHistory",
         "security": [
           {
@@ -515,83 +515,59 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Crop Cycle Id"
-            }
+              "title": "Crop Cycle Id",
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Only a known stored UUID. Omit when using crop_name; never invent an ID."
           },
           {
             "name": "crop_name",
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Crop Name"
-            }
+              "title": "Crop Name",
+              "type": "string"
+            },
+            "description": "Canonical crop name, e.g. Turmeric. Use the crop named by the user."
           },
           {
             "name": "date_from",
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Date From"
-            }
+              "title": "Date From",
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Optional inclusive YYYY-MM-DD start. Omit unless a date range is requested."
           },
           {
             "name": "date_to",
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Date To"
-            }
+              "title": "Date To",
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Optional inclusive YYYY-MM-DD end. Omit unless a date range is requested."
           },
           {
             "name": "execution_status",
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
+              "title": "Execution Status",
+              "enum": [
+                "IN_PROGRESS",
+                "PARTIALLY_COMPLETED",
+                "COMPLETED",
+                "CANCELLED"
               ],
-              "title": "Execution Status"
-            }
+              "type": "string"
+            },
+            "description": "Omit for all statuses. Otherwise use one of the listed execution codes."
           },
           {
             "name": "limit",
@@ -603,7 +579,8 @@
               "minimum": 1,
               "default": 200,
               "title": "Limit"
-            }
+            },
+            "description": "Maximum returned rows; keep the default for full history. A row limit is not pagination."
           }
         ],
         "responses": {

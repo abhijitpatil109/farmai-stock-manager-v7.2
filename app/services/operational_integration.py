@@ -13,7 +13,7 @@ from .activity_history import activity_history_detail
 from .activity_register import ActivityRegisterNotFound, ActivityRegisterValidation
 
 
-CONTRACT_VERSION = "OI-1.3.1"
+CONTRACT_VERSION = "OI-1.3.2"
 
 
 def _safe_section(name, fn):
