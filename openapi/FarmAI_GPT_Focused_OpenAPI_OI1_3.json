@@ -1,0 +1,1906 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FarmAI GPT Operational Actions",
+    "version": "OI-1.3.0",
+    "description": "Focused FarmAI Action surface for authoritative stock, activity, purchase, crop decision and geotag-resolved spray-window workflows."
+  },
+  "servers": [
+    {
+      "url": "https://farmai-stock-manager-v7-2.vercel.app",
+      "description": "FarmAI Stock Manager API"
+    }
+  ],
+  "paths": {
+    "/api/v1/inventory/{product_code}": {
+      "get": {
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Get inventory for one product",
+        "description": "Returns the current physical, reserved and available stock for one canonical FarmAI product code across all active stock locations.",
+        "operationId": "getProductInventory",
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "product_code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Code"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/search": {
+      "get": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Search FarmAI product master",
+        "description": "Searches active products by product name, canonical product code, brand, or active ingredient. Intended for reliable Stock Agent product resolution before inventory write operations.",
+        "operationId": "searchProducts",
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "description": "Product name, product code, brand, or active ingredient.",
+              "title": "Q"
+            },
+            "description": "Product name, product code, brand, or active ingredient."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/products/{product_code}": {
+      "get": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Get one FarmAI product",
+        "description": "Returns canonical product-master metadata for one product code. This endpoint does not return live stock; use getProductInventory for current inventory.",
+        "operationId": "getProduct",
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "product_code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Code"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/purchases": {
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Record a stock purchase",
+        "description": "Adds purchased stock to the FarmAI transaction ledger. Quantity is normalized to the product base unit and duplicate requests are protected by idempotency_key.",
+        "operationId": "recordStockPurchase",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ]
+      }
+    },
+    "/api/v1/transactions": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "Get stock transaction history",
+        "description": "Returns recent stock-ledger transactions with optional filtering by product code and transaction type.",
+        "operationId": "getStockTransactions",
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "product_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Code"
+            }
+          },
+          {
+            "name": "transaction_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "OPENING_BALANCE",
+                    "PURCHASE",
+                    "USAGE",
+                    "DAMAGE",
+                    "EXPIRY_DISPOSAL",
+                    "VERIFICATION_ADJUSTMENT",
+                    "REVERSAL"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Transaction Type"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/purchases/batch": {
+      "post": {
+        "tags": [
+          "Batch Transactions"
+        ],
+        "summary": "Record multiple stock purchases atomically",
+        "operationId": "recordBatchStockPurchase",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchPurchaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ]
+      }
+    },
+    "/api/v1/products": {
+      "post": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Create a new canonical FarmAI product",
+        "description": "Creates a product-master record only. The backend counts existing products in the selected category and generates the next canonical category-sequence product code. This operation does not add stock.",
+        "operationId": "createProduct",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProductRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ]
+      }
+    },
+    "/api/v1/weather-intelligence/operational-check": {
+      "post": {
+        "tags": [
+          "External Intelligence / Weather"
+        ],
+        "summary": "Check",
+        "operationId": "checkOperationalWeather",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationalWeatherCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ]
+      }
+    },
+    "/api/v1/operations/health": {
+      "get": {
+        "tags": [
+          "FarmAI ChatGPT Operational Integration"
+        ],
+        "summary": "Health",
+        "operationId": "getOperationalHealth",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ]
+      }
+    },
+    "/api/v1/operations/capabilities": {
+      "get": {
+        "tags": [
+          "FarmAI ChatGPT Operational Integration"
+        ],
+        "summary": "Get Capabilities",
+        "operationId": "getOperationalCapabilities",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ]
+      }
+    },
+    "/api/v1/operations/stock": {
+      "get": {
+        "tags": [
+          "FarmAI ChatGPT Operational Integration"
+        ],
+        "summary": "Get complete authoritative FarmAI stock",
+        "description": "Authoritative GPT-facing stock read. Returns EVERY active FarmAI product, including zero-stock products and products with no stock transaction yet. For complete/current stock questions use this operation, not getCurrentInventory.",
+        "operationId": "getOperationalStock",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ]
+      }
+    },
+    "/api/v1/operations/activity-history": {
+      "get": {
+        "tags": [
+          "FarmAI ChatGPT Operational Integration"
+        ],
+        "summary": "Get authoritative FarmAI activity history",
+        "description": "Authoritative GPT-facing Activity History. Reads Activity + Execution + purpose + products + linked Stock transactions. Use this for latest/history questions after crop-use stock deductions.",
+        "operationId": "getOperationalActivityHistory",
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "crop_cycle_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Crop Cycle Id"
+            }
+          },
+          {
+            "name": "crop_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Crop Name"
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "name": "execution_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Execution Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/context": {
+      "get": {
+        "tags": [
+          "FarmAI ChatGPT Operational Integration"
+        ],
+        "summary": "Context",
+        "operationId": "getOperationalContext",
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "farm_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Farm Id"
+            }
+          },
+          {
+            "name": "crop_cycle_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Crop Cycle Id"
+            }
+          },
+          {
+            "name": "horizon_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 30,
+              "minimum": 1,
+              "default": 7,
+              "title": "Horizon Days"
+            }
+          },
+          {
+            "name": "history_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 180,
+              "minimum": 1,
+              "default": 30,
+              "title": "History Days"
+            }
+          },
+          {
+            "name": "include_intelligence",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Include Intelligence"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/crop-decision-context/{crop_cycle_id}": {
+      "get": {
+        "tags": [
+          "FarmAI ChatGPT Operational Integration"
+        ],
+        "summary": "Decision-grade crop context for FarmAI GPT",
+        "operationId": "getOperationalCropDecisionContext",
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "crop_cycle_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Crop Cycle Id"
+            }
+          },
+          {
+            "name": "horizon_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 14,
+              "minimum": 1,
+              "default": 7,
+              "title": "Horizon Days"
+            }
+          },
+          {
+            "name": "history_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 180,
+              "minimum": 14,
+              "default": 60,
+              "title": "History Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/spray-window": {
+      "post": {
+        "tags": [
+          "FarmAI ChatGPT Operational Integration"
+        ],
+        "summary": "Resolve stored farm geotag and find the best spray window",
+        "description": "MANDATORY for today/tomorrow spray-window or 'can we spray?' requests. Resolves stored farm/crop/plot geotag, refreshes forecasts, and ranks windows. Do not ask for coordinates first; ask only if the response reports missing or ambiguous stored location. Label limits override defaults.",
+        "operationId": "getBestOperationalSprayWindow",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SprayWindowConsultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ]
+      }
+    },
+    "/api/v1/operations/activity/preview": {
+      "post": {
+        "tags": [
+          "FarmAI ChatGPT Operational Integration"
+        ],
+        "summary": "Preview crop Activity + Stock impact",
+        "operationId": "previewOperationalActivity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FarmerActivityEntry"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ]
+      }
+    },
+    "/api/v1/operations/activity/complete": {
+      "post": {
+        "tags": [
+          "FarmAI ChatGPT Operational Integration"
+        ],
+        "summary": "Record completed crop Activity and synchronize Stock",
+        "description": "Use for completed crop applications with stock use. Records Activity, Execution, purposes and actual quantities, then synchronizes Stock idempotently. Report success only when write_confirmation verifies history and stock linkage. Never use generic stock usage for crop work.",
+        "operationId": "completeOperationalActivity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationalActivityCompleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FarmAIApiKey": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "FarmAIApiKey": {
+        "type": "apiKey",
+        "description": "FarmAI Stock Manager API key",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    },
+    "schemas": {
+      "BatchPurchaseItem": {
+        "properties": {
+          "product_code": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Product Code"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Unit"
+          },
+          "location_code": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Location Code",
+            "default": "MAIN"
+          },
+          "effective_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective At"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_code",
+          "quantity",
+          "unit"
+        ],
+        "title": "BatchPurchaseItem"
+      },
+      "BatchPurchaseRequest": {
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 8,
+            "title": "Idempotency Key"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BatchPurchaseItem"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Items"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "idempotency_key",
+          "items"
+        ],
+        "title": "BatchPurchaseRequest"
+      },
+      "CreateProductRequest": {
+        "properties": {
+          "product_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Product Name"
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Category"
+          },
+          "base_unit": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Base Unit"
+          },
+          "brand": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "primary_function": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Function"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_name",
+          "category",
+          "base_unit"
+        ],
+        "title": "CreateProductRequest"
+      },
+      "FarmerActivityEntry": {
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 8,
+            "title": "Idempotency Key"
+          },
+          "crop_cycle_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crop Cycle Id"
+          },
+          "crop_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crop Name"
+          },
+          "activity_type_code": {
+            "type": "string",
+            "title": "Activity Type Code"
+          },
+          "application_method_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Application Method Code"
+          },
+          "execution_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Execution Date"
+          },
+          "execution_status": {
+            "type": "string",
+            "enum": [
+              "PARTIALLY_COMPLETED",
+              "COMPLETED"
+            ],
+            "title": "Execution Status",
+            "default": "COMPLETED"
+          },
+          "purpose_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Purpose Codes"
+          },
+          "pump_count": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pump Count"
+          },
+          "pump_volume_l": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pump Volume L"
+          },
+          "water_volume_l": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Water Volume L"
+          },
+          "area": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area"
+          },
+          "area_unit_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Unit Code"
+          },
+          "bed_count": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bed Count"
+          },
+          "plant_count": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plant Count"
+          },
+          "performed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Performed By"
+          },
+          "notes_en": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes En"
+          },
+          "notes_mr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes Mr"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/FarmerInput"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Inputs"
+          },
+          "sync_stock": {
+            "type": "boolean",
+            "title": "Sync Stock",
+            "default": true
+          },
+          "stock_location_code": {
+            "type": "string",
+            "title": "Stock Location Code",
+            "default": "MAIN"
+          },
+          "created_by": {
+            "type": "string",
+            "title": "Created By",
+            "default": "FARMER"
+          }
+        },
+        "type": "object",
+        "required": [
+          "idempotency_key",
+          "activity_type_code",
+          "execution_date",
+          "inputs"
+        ],
+        "title": "FarmerActivityEntry"
+      },
+      "FarmerInput": {
+        "properties": {
+          "product_code": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Product Code"
+          },
+          "dose": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Dose"
+          },
+          "dose_unit_code": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Dose Unit Code"
+          },
+          "dose_basis_code": {
+            "type": "string",
+            "enum": [
+              "TOTAL",
+              "PER_PUMP",
+              "PER_LITRE_WATER",
+              "PER_ACRE",
+              "PER_HECTARE",
+              "PER_BED",
+              "PER_PLANT"
+            ],
+            "title": "Dose Basis Code"
+          },
+          "notes_en": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes En"
+          },
+          "notes_mr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes Mr"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_code",
+          "dose",
+          "dose_unit_code",
+          "dose_basis_code"
+        ],
+        "title": "FarmerInput"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "OperationalActivityCompleteRequest": {
+        "properties": {
+          "farmer_authorized": {
+            "type": "boolean",
+            "const": true,
+            "title": "Farmer Authorized"
+          },
+          "entry": {
+            "$ref": "#/components/schemas/FarmerActivityEntry"
+          }
+        },
+        "type": "object",
+        "required": [
+          "farmer_authorized",
+          "entry"
+        ],
+        "title": "OperationalActivityCompleteRequest",
+        "description": "Explicit authorization envelope for farmer-visible operational writes."
+      },
+      "OperationalWeatherCheckRequest": {
+        "properties": {
+          "crop_cycle_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crop Cycle Id"
+          },
+          "activity_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity Id"
+          },
+          "farm_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Farm Id"
+          },
+          "plot_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plot Id"
+          },
+          "operation_type": {
+            "type": "string",
+            "enum": [
+              "SPRAY",
+              "FERTIGATION",
+              "IRRIGATION",
+              "OTHER"
+            ],
+            "title": "Operation Type"
+          },
+          "planned_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Planned Start"
+          },
+          "expected_duration_minutes": {
+            "type": "integer",
+            "maximum": 1440.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Expected Duration Minutes"
+          },
+          "rainfast_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1440.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rainfast Minutes"
+          },
+          "safety_buffer_minutes": {
+            "type": "integer",
+            "maximum": 360.0,
+            "minimum": 0.0,
+            "title": "Safety Buffer Minutes",
+            "default": 30
+          },
+          "persist": {
+            "type": "boolean",
+            "title": "Persist",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "farm_id",
+          "operation_type",
+          "planned_start",
+          "expected_duration_minutes"
+        ],
+        "title": "OperationalWeatherCheckRequest"
+      },
+      "PurchaseRequest": {
+        "properties": {
+          "product_code": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Product Code"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Unit"
+          },
+          "location_code": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Location Code",
+            "default": "MAIN"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 8,
+            "title": "Idempotency Key"
+          },
+          "effective_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective At"
+          },
+          "batch_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Number"
+          },
+          "expiry_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiry Date"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_code",
+          "quantity",
+          "unit",
+          "idempotency_key"
+        ],
+        "title": "PurchaseRequest"
+      },
+      "SprayWindowConsultRequest": {
+        "properties": {
+          "farm_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Farm Id"
+          },
+          "farm_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Farm Name"
+          },
+          "plot_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plot Id"
+          },
+          "plot_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plot Name"
+          },
+          "crop_cycle_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crop Cycle Id"
+          },
+          "crop_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Crop Name"
+          },
+          "target_day": {
+            "type": "string",
+            "enum": [
+              "TODAY",
+              "TOMORROW"
+            ],
+            "title": "Target Day",
+            "default": "TOMORROW"
+          },
+          "target_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Date"
+          },
+          "expected_duration_minutes": {
+            "type": "integer",
+            "maximum": 720.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Expected Duration Minutes",
+            "default": 120
+          },
+          "rainfast_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1440.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rainfast Minutes"
+          },
+          "screening_rainfree_minutes": {
+            "type": "integer",
+            "maximum": 1440.0,
+            "minimum": 60.0,
+            "title": "Screening Rainfree Minutes",
+            "default": 240
+          },
+          "safety_buffer_minutes": {
+            "type": "integer",
+            "maximum": 360.0,
+            "minimum": 0.0,
+            "title": "Safety Buffer Minutes",
+            "default": 30
+          },
+          "earliest_local_time": {
+            "type": "string",
+            "format": "time",
+            "title": "Earliest Local Time",
+            "default": "06:00:00"
+          },
+          "latest_local_time": {
+            "type": "string",
+            "format": "time",
+            "title": "Latest Local Time",
+            "default": "18:00:00"
+          },
+          "candidate_interval_minutes": {
+            "type": "integer",
+            "maximum": 180.0,
+            "minimum": 30.0,
+            "title": "Candidate Interval Minutes",
+            "default": 60
+          },
+          "max_wind_kmh": {
+            "type": "number",
+            "maximum": 100.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Wind Kmh",
+            "default": 15
+          },
+          "max_gust_kmh": {
+            "type": "number",
+            "maximum": 150.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Gust Kmh",
+            "default": 25
+          },
+          "max_temperature_c": {
+            "type": "number",
+            "maximum": 60.0,
+            "minimum": 0.0,
+            "title": "Max Temperature C",
+            "default": 32
+          },
+          "min_relative_humidity_pct": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Min Relative Humidity Pct",
+            "default": 40
+          },
+          "refresh_before_assessment": {
+            "type": "boolean",
+            "title": "Refresh Before Assessment",
+            "default": true
+          },
+          "persist": {
+            "type": "boolean",
+            "title": "Persist",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "SprayWindowConsultRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

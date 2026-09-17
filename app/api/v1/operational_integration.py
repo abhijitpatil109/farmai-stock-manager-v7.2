@@ -13,6 +13,7 @@ from ...core.responses import success_response, error_response
 from ...core.security import require_api_key
 from ...schemas.activity_farmer_entry import FarmerActivityEntry
 from ...schemas.operational_integration import OperationalActivityCompleteRequest
+from ...schemas.weather_intelligence import SprayWindowConsultRequest
 from ...services.operational_integration import (
     CONTRACT_VERSION,
     operational_health,
@@ -24,6 +25,7 @@ from ...services.operational_integration import (
     complete_operational_activity,
 )
 from ...services.operational_decision_context import build_crop_decision_context
+from ...services.external_weather import spray_window_consultation
 from ...services.activity_register import (
     ActivityRegisterNotFound,
     ActivityRegisterConflict,
@@ -224,6 +226,30 @@ def crop_decision_context(
 
 
 @router.post(
+    "/spray-window",
+    operation_id="getBestOperationalSprayWindow",
+    summary="Resolve stored farm geotag and find the best spray window",
+    description=(
+        "MANDATORY for today/tomorrow spray-window or 'can we spray?' requests. "
+        "Resolves stored farm/crop/plot geotag, refreshes forecasts, and ranks "
+        "windows. Do not ask for coordinates first; ask only if the response "
+        "reports missing or ambiguous stored location. Label limits override defaults."
+    ),
+)
+def spray_window(req: SprayWindowConsultRequest):
+    try:
+        return success_response(spray_window_consultation(req))
+    except (
+        ActivityRegisterNotFound,
+        ActivityRegisterConflict,
+        ActivityRegisterValidation,
+    ) as exc:
+        return _err(exc)
+    except Exception as exc:
+        return _unexpected_error(exc, operation="getBestOperationalSprayWindow")
+
+
+@router.post(
     "/activity/preview",
     operation_id="previewOperationalActivity",
     summary="Preview crop Activity + Stock impact",
@@ -246,11 +272,10 @@ def preview_activity(req: FarmerActivityEntry):
     operation_id="completeOperationalActivity",
     summary="Record completed crop Activity and synchronize Stock",
     description=(
-        "Use this operation whenever stock consumption belongs to a crop activity. "
-        "It records Activity + Execution + purpose + actual product quantities and "
-        "idempotently synchronizes Stock. The response includes a write_confirmation "
-        "proving Activity History visibility and Stock transaction linkage. "
-        "Do not use a generic stock-usage operation for crop applications."
+        "Use for completed crop applications with stock use. Records Activity, "
+        "Execution, purposes and actual quantities, then synchronizes Stock "
+        "idempotently. Report success only when write_confirmation verifies "
+        "history and stock linkage. Never use generic stock usage for crop work."
     ),
 )
 def complete_activity(req: OperationalActivityCompleteRequest):

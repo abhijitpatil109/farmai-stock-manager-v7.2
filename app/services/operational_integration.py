@@ -13,7 +13,7 @@ from .activity_history import activity_history_detail
 from .activity_register import ActivityRegisterNotFound, ActivityRegisterValidation
 
 
-CONTRACT_VERSION = "OI-1.2.2"
+CONTRACT_VERSION = "OI-1.3.0"
 
 
 def _safe_section(name, fn):
@@ -223,7 +223,7 @@ def operational_stock():
     returned_count = sum(len(c["products"]) for c in categories)
 
     return {
-        "contract_version": "OI-1.2.2",
+        "contract_version": CONTRACT_VERSION,
         "as_of_date": date.today(),
         "registry_version": "7.2",
         "columns": [
@@ -435,7 +435,8 @@ def operational_health():
         "activity_execution_inputs", "stock_transactions", "current_inventory",
         "products", "product_display_metadata", "intelligence_recommendations",
         "weather_locations", "plot_geometries", "plot_remote_observations",
-        "scouting_tasks",
+        "scouting_tasks", "external_data_providers", "weather_fetch_runs",
+        "weather_data_points", "weather_ensemble_runs", "weather_ensemble_points",
     ]
     with connection() as conn:
         db_today = conn.execute("SELECT CURRENT_DATE AS today").fetchone()["today"]
@@ -478,6 +479,7 @@ def capabilities():
             "getOperationalActivityHistory",
             "getOperationalHealth",
             "getOperationalCropDecisionContext",
+            "getBestOperationalSprayWindow",
         ],
         "write_tools": [
             "previewOperationalActivity",
@@ -509,6 +511,10 @@ def capabilities():
             ),
             "activity_history": (
                 "getOperationalActivityHistory is the authoritative GPT-facing history read."
+            ),
+            "spray_window": (
+                "getBestOperationalSprayWindow resolves stored farm/crop/plot geotags, "
+                "refreshes weather evidence and ranks today/tomorrow spray windows."
             ),
         },
         "truth_model": {

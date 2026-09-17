@@ -304,6 +304,204 @@ def operational_check(req):
      json.dumps(out,default=_json_default),ENGINE_VERSION));c.commit()
  return out
 
+def _resolve_spray_window_target(req):
+ with connection() as c:
+  farm_clauses=["active=true"];farm_params=[]
+  if req.farm_id:
+   farm_clauses.append("id=%s");farm_params.append(req.farm_id)
+  if req.farm_name:
+   farm_clauses.append("(lower(name_en)=lower(%s) OR name_mr=%s)")
+   farm_params.extend([req.farm_name,req.farm_name])
+  farms=c.execute(
+   "SELECT * FROM farms WHERE "+" AND ".join(farm_clauses)+" ORDER BY created_at",
+   tuple(farm_params),
+  ).fetchall()
+  if not farms:raise ActivityRegisterNotFound("Active farm not found from the supplied identity.")
+  if len(farms)!=1:
+   raise ActivityRegisterValidation("Farm is ambiguous; supply farm_id or the exact stored farm name.")
+  farm=dict(farms[0])
+
+  plot=None
+  if req.plot_id or req.plot_name:
+   plot_clauses=["farm_id=%s","active=true"];plot_params=[farm["id"]]
+   if req.plot_id:plot_clauses.append("id=%s");plot_params.append(req.plot_id)
+   if req.plot_name:
+    plot_clauses.append("(lower(name_en)=lower(%s) OR name_mr=%s OR lower(code)=lower(%s))")
+    plot_params.extend([req.plot_name,req.plot_name,req.plot_name])
+   plots=c.execute(
+    "SELECT * FROM plots WHERE "+" AND ".join(plot_clauses)+" ORDER BY code",
+    tuple(plot_params),
+   ).fetchall()
+   if not plots:raise ActivityRegisterNotFound("Active plot not found for the selected farm.")
+   if len(plots)!=1:raise ActivityRegisterValidation("Plot is ambiguous; supply plot_id.")
+   plot=dict(plots[0])
+
+  cycle=None
+  if req.crop_cycle_id:
+   row=c.execute("""SELECT cc.*,p.code plot_code,p.name_en plot_name_en,p.name_mr plot_name_mr
+    FROM crop_cycles cc JOIN plots p ON p.id=cc.plot_id
+    WHERE cc.id=%s AND cc.farm_id=%s""",(req.crop_cycle_id,farm["id"])).fetchone()
+   if not row:raise ActivityRegisterNotFound("Crop cycle not found for the selected farm.")
+   cycle=dict(row)
+  elif req.crop_name:
+   clauses=["cc.farm_id=%s","cc.status='ACTIVE'","(lower(cc.crop_name_en)=lower(%s) OR cc.crop_name_mr=%s)"]
+   params=[farm["id"],req.crop_name,req.crop_name]
+   selected_plot_id=plot["id"] if plot else req.plot_id
+   if selected_plot_id:clauses.append("cc.plot_id=%s");params.append(selected_plot_id)
+   rows=c.execute("""SELECT cc.*,p.code plot_code,p.name_en plot_name_en,p.name_mr plot_name_mr
+    FROM crop_cycles cc JOIN plots p ON p.id=cc.plot_id WHERE """+" AND ".join(clauses)+
+    " ORDER BY cc.planting_date DESC",tuple(params)).fetchall()
+   if not rows:raise ActivityRegisterNotFound("Active crop cycle not found from the supplied crop name.")
+   if len(rows)!=1:
+    raise ActivityRegisterValidation("Crop name maps to multiple active plots; supply plot_name or crop_cycle_id.")
+   cycle=dict(rows[0])
+
+  if cycle:
+   if plot and cycle["plot_id"]!=plot["id"]:
+    raise ActivityRegisterValidation("Selected crop cycle does not belong to the selected plot.")
+   if not plot:
+    plot={"id":cycle["plot_id"],"code":cycle["plot_code"],"name_en":cycle["plot_name_en"],"name_mr":cycle["plot_name_mr"]}
+
+  loc=dict(_location(c,farm["id"],plot["id"] if plot else None))
+ return farm,plot,cycle,loc
+
+def _window_weather_metrics(location_id,start,end):
+ with connection() as c:
+  by=_latest_model_points(c,location_id,start,end)
+ points=[p for rows in by.values() for p in rows]
+ def vals(name):return [float(p[name]) for p in points if p.get(name) is not None]
+ winds=vals("wind_speed_kmh");gusts=vals("wind_gust_kmh");temps=vals("temperature_c");rhs=vals("relative_humidity_pct")
+ return {
+  "weather_model_count":len(by),
+  "max_wind_kmh":round(max(winds),1) if winds else None,
+  "max_gust_kmh":round(max(gusts),1) if gusts else None,
+  "min_temperature_c":round(min(temps),1) if temps else None,
+  "max_temperature_c":round(max(temps),1) if temps else None,
+  "min_relative_humidity_pct":round(min(rhs),1) if rhs else None,
+  "max_relative_humidity_pct":round(max(rhs),1) if rhs else None,
+ }
+
+def _evaluate_spray_candidate(consensus_result,metrics,req):
+ reasons=[];score=10.0
+ if consensus_result["freshness_status"] in ("STALE","INSUFFICIENT_DATA"):
+  return "INSUFFICIENT_DATA",0.0,["WEATHER_DATA_NOT_FRESH"]
+ if consensus_result["model_agreement"]=="INSUFFICIENT_DATA" or metrics["weather_model_count"]<2:
+  return "INSUFFICIENT_DATA",0.0,["INSUFFICIENT_WEATHER_MODELS"]
+ ensemble=consensus_result.get("ensemble_precipitation_probability_pct")
+ deterministic=consensus_result.get("deterministic_rain_support_pct") or 0
+ rain_max=consensus_result.get("expected_precipitation_max_mm") or 0
+ if ensemble is not None:score-=min(5.0,float(ensemble)/20.0)
+ score-=min(4.0,float(deterministic)/25.0)
+ if ensemble is not None and float(ensemble)>=50:reasons.append("ENSEMBLE_RAIN_RISK")
+ if float(deterministic)>=50:reasons.append("DETERMINISTIC_RAIN_SUPPORT")
+ if float(rain_max)>DEFAULT_EVENT_THRESHOLD_MM:reasons.append("MODEL_RAIN_SIGNAL")
+
+ wind=metrics.get("max_wind_kmh");gust=metrics.get("max_gust_kmh")
+ temp=metrics.get("max_temperature_c");rh=metrics.get("min_relative_humidity_pct")
+ if wind is None:reasons.append("WIND_DATA_MISSING");score-=1
+ elif wind>req.max_wind_kmh:reasons.append("WIND_ABOVE_LIMIT");score-=3
+ else:score-=min(1.5,(wind/req.max_wind_kmh)*1.5)
+ if gust is None:reasons.append("GUST_DATA_MISSING");score-=0.5
+ elif gust>req.max_gust_kmh:reasons.append("GUST_ABOVE_LIMIT");score-=2
+ if temp is None:reasons.append("TEMPERATURE_DATA_MISSING");score-=0.5
+ elif temp>req.max_temperature_c:reasons.append("TEMPERATURE_ABOVE_LIMIT");score-=2
+ if rh is None:reasons.append("HUMIDITY_DATA_MISSING");score-=0.5
+ elif rh<req.min_relative_humidity_pct:reasons.append("HUMIDITY_BELOW_LIMIT");score-=2
+ if req.rainfast_minutes is None:reasons.append("PRODUCT_RAINFAST_UNKNOWN");score-=0.5
+
+ hold={"ENSEMBLE_RAIN_RISK","DETERMINISTIC_RAIN_SUPPORT","WIND_ABOVE_LIMIT","GUST_ABOVE_LIMIT"}
+ if hold.intersection(reasons):decision="HOLD"
+ elif reasons:decision="CAUTION"
+ else:decision="SAFE"
+ return decision,round(max(0.0,min(10.0,score)),1),reasons
+
+def _non_overlapping_ranked(candidates,limit=3):
+ order={"SAFE":0,"CAUTION":1,"HOLD":2,"INSUFFICIENT_DATA":3}
+ ranked=sorted(candidates,key=lambda x:(order[x["decision"]],-x["rating_10"],x["start"]))
+ chosen=[]
+ for candidate in ranked:
+  if all(candidate["end"]<=x["start"] or candidate["start"]>=x["end"] for x in chosen):
+   chosen.append(candidate)
+  if len(chosen)>=limit:break
+ return chosen
+
+def spray_window_consultation(req):
+ farm,plot,cycle,loc=_resolve_spray_window_target(req)
+ tz=ZoneInfo(loc["timezone"]);now_local=datetime.now(tz);today=now_local.date()
+ target=req.target_date or (today+timedelta(days=1 if req.target_day=="TOMORROW" else 0))
+ day_delta=(target-today).days
+ if day_delta<0 or day_delta>6:
+  raise ActivityRegisterValidation("target_date must be today or within the next 6 days.")
+ refresh={"status":"SKIPPED"}
+ if req.refresh_before_assessment:
+  refresh=refresh_all(farm["id"],plot["id"] if plot else None,max(1,min(7,day_delta+2)))
+
+ day_start=datetime.combine(target,req.earliest_local_time,tzinfo=tz)
+ day_end=datetime.combine(target,req.latest_local_time,tzinfo=tz)
+ rainfree=req.rainfast_minutes if req.rainfast_minutes is not None else req.screening_rainfree_minutes
+ candidates=[];start=day_start
+ if target==today:
+  step=timedelta(minutes=req.candidate_interval_minutes)
+  while start<now_local:start+=step
+ while start+timedelta(minutes=req.expected_duration_minutes)<=day_end:
+  spray_end=start+timedelta(minutes=req.expected_duration_minutes)
+  required_until=spray_end+timedelta(minutes=rainfree+req.safety_buffer_minutes)
+  con=consensus(farm["id"],plot["id"] if plot else None,start,required_until,persist=req.persist)
+  metrics=_window_weather_metrics(loc["id"],start,required_until)
+  decision,rating,reasons=_evaluate_spray_candidate(con,metrics,req)
+  candidates.append({
+   "start":start,"end":spray_end,"required_rainfree_until":required_until,
+   "decision":decision,"rating_10":rating,"reason_codes":reasons,
+   "weather":metrics,
+   "rain":{
+    "deterministic_support_pct":con.get("deterministic_rain_support_pct"),
+    "ensemble_probability_pct":con.get("ensemble_precipitation_probability_pct"),
+    "expected_precipitation_min_mm":con.get("expected_precipitation_min_mm"),
+    "expected_precipitation_max_mm":con.get("expected_precipitation_max_mm"),
+    "confidence_class":con.get("confidence_class"),
+    "freshness_status":con.get("freshness_status"),
+   },
+  })
+  start+=timedelta(minutes=req.candidate_interval_minutes)
+ ranked=_non_overlapping_ranked(candidates)
+ primary=ranked[0] if ranked else None
+ top_level_reasons=[]
+ if not primary and target==today:
+  recommendation="AVOID";top_level_reasons=["NO_REMAINING_DAYLIGHT_WINDOW"]
+ elif not primary or primary["decision"]=="INSUFFICIENT_DATA":recommendation="INSUFFICIENT_DATA"
+ elif primary["decision"]=="HOLD":recommendation="AVOID"
+ elif primary["decision"]=="CAUTION":recommendation="CONDITIONAL"
+ else:recommendation="SPRAY"
+ return {
+  "recommendation":recommendation,
+  "reason_codes":top_level_reasons,
+  "forecast_assessed_at":now_local,
+  "target_date":target,
+  "resolved_context":{
+   "farm_id":str(farm["id"]),"farm_name_en":farm.get("name_en"),"farm_name_mr":farm.get("name_mr"),
+   "plot_id":str(plot["id"]) if plot else None,"plot_code":plot.get("code") if plot else None,
+   "plot_name_en":plot.get("name_en") if plot else None,"plot_name_mr":plot.get("name_mr") if plot else None,
+   "crop_cycle_id":str(cycle["id"]) if cycle else None,"crop_name_en":cycle.get("crop_name_en") if cycle else None,
+   "crop_name_mr":cycle.get("crop_name_mr") if cycle else None,
+   "weather_location_id":str(loc["id"]),"geotag_source":loc.get("source"),"timezone":loc["timezone"],
+  },
+  "primary_window":primary,
+  "backup_windows":ranked[1:],
+  "evaluated_candidate_count":len(candidates),
+  "constraints":{
+   "expected_duration_minutes":req.expected_duration_minutes,"rainfast_minutes":req.rainfast_minutes,
+   "screening_rainfree_minutes_used":rainfree,"safety_buffer_minutes":req.safety_buffer_minutes,
+   "max_wind_kmh":req.max_wind_kmh,"max_gust_kmh":req.max_gust_kmh,
+   "max_temperature_c":req.max_temperature_c,"min_relative_humidity_pct":req.min_relative_humidity_pct,
+  },
+  "refresh":refresh,"engine_version":ENGINE_VERSION,
+  "guardrails":[
+   "Stored farm/plot geotag was resolved by the backend; the caller did not supply coordinates.",
+   "Default thresholds are operational screening limits, not substitutes for product-label restrictions.",
+   "When product rainfastness is unknown, windows remain CONDITIONAL even after a conservative rain-free screening period.",
+  ],
+ }
+
 def record_observation(req):
  with connection() as c:
   loc=_location(c,req.farm_id,req.plot_id)
